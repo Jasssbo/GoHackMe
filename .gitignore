@@ -1,0 +1,45 @@
+# ── Dart / Flutter ────────────────────────────────────────────
+.dart_tool/
+.pub-cache/
+.pub/
+build/
+*.dill
+
+# ── IDE / Editor ──────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+Thumbs.db
+
+# ── Secrets / Local config (NEVER commit these) ───────────────
+# Android signing
+key.properties
+**/*.keystore
+**/*.jks
+# Firebase
+google-services.json
+GoogleService-Info.plist
+# Environment / secrets
+.env
+.env.*
+*.env
+secrets.dart
+
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+
+# ── OS ────────────────────────────────────────────────────────
+*.log
+*.swp
+*.class
+
+# ── Melos ─────────────────────────────────────────────────────
+.melos_tool/
+
+# ── AI / tooling artefacts (not part of the project) ─────────
+\# Code Citations.md

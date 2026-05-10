@@ -1,0 +1,27 @@
+name: gohackme_workspace
+
+packages:
+  - app
+  - packages/**
+  - server
+
+command:
+  version:
+    workspaceChangelog: true
+
+scripts:
+  analyze:
+    run: melos exec -- dart analyze .
+    description: Run dart analyze on all packages.
+
+  test:
+    run: melos exec -- dart test
+    description: Run all tests in all packages.
+
+  generate:
+    run: melos exec -- dart run build_runner build --delete-conflicting-outputs
+    description: Run code generation (Riverpod, Freezed) on all packages.
+
+  clean:
+    run: melos exec -- flutter clean
+    description: Clean all packages.

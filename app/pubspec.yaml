@@ -1,0 +1,59 @@
+name: gohackme
+description: >-
+  GoHackMe – a cyberpunk/hacking-themed online multiplayer Go variant for
+  mobile and desktop. Place stones, gain subnets, launch attacks.
+version: 1.0.0+1
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Navigation
+  go_router: ^14.8.1
+
+  # Networking
+  web_socket_channel: ^3.0.2
+
+  # Serialisation
+  freezed_annotation: ^2.4.4
+  json_annotation: ^4.9.0
+
+  # UI
+  google_fonts: ^6.2.1
+  flutter_animate: ^4.5.2
+
+  # Storage / misc
+  shared_preferences: ^2.3.4
+  uuid: ^4.5.1
+
+  # Shared game logic
+  go_engine:
+    path: ../packages/go_engine
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/shaders/
+    - assets/fonts/
+    - assets/images/
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # Code generation
+  riverpod_generator: ^2.6.3
+  build_runner: ^2.4.13
+  freezed: ^2.5.7
+  json_serializable: ^6.8.0
+  custom_lint: ^0.7.3
+  riverpod_lint: ^2.4.3
+  flutter_lints: ^5.0.0
