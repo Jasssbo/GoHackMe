@@ -66,4 +66,4 @@ See `server/README.md` for full deployment notes including TLS / reverse-proxy s
 
 ## License
 
-[MIT](LICENSE)
+[GNU-GPLv3](LICENSE)
