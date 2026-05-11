@@ -57,6 +57,10 @@ class LanHostService implements IGameTransport {
   late int _maxPlayers;
   final List<LanPlayer> _pending = []; // players waiting for game start
 
+  /// Player IDs that disconnected after the game started.
+  /// They may reconnect; their subnets are zeroed-out on disconnect.
+  final Set<String> _disconnectedPlayers = {};
+
   // ── Streams ───────────────────────────────────────────────────────────────
   final _stateCtrl = StreamController<GameState>.broadcast();
   final _logCtrl = StreamController<String>.broadcast();
@@ -194,14 +198,95 @@ class LanHostService implements IGameTransport {
   }
 
   void _handleJoin(_ClientConn conn, String pid, GameMessage msg) {
-    if (_state != null) {
+    // ── Reconnection: player was in the game but disconnected ──────────────
+    if (_state != null && _disconnectedPlayers.contains(pid)) {
+      _disconnectedPlayers.remove(pid);
+      conn.playerId = pid;
+      _clients[pid] = conn;
+      final displayName =
+          _state!.players.firstWhere((p) => p.id == pid).displayName;
+      _log('PLAYER_RECONNECTED: $displayName');
+      // Send current state so the rejoinee is immediately in sync.
       _sendTo(
         conn,
-        const GameMessage(
-          type: MessageType.error,
-          payload: {'reason': 'GAME_ALREADY_STARTED'},
+        GameMessage(
+          type: MessageType.gameStateUpdate,
+          payload: {'state': _state!.toJson(), 'log': 'RECONNECTED'},
         ),
       );
+      // Notify everyone.
+      _broadcastAll(
+        GameMessage(
+          type: MessageType.playerJoined,
+          payload: {'player': {'id': pid, 'displayName': displayName}},
+        ),
+      );
+      return;
+    }
+
+    // ── Reject if game already started and this is NOT a reconnect ─────────
+    if (_state != null) {
+      if (_pending.length >= _maxPlayers) {
+        _sendTo(
+          conn,
+          const GameMessage(
+            type: MessageType.error,
+            payload: {'reason': 'ROOM_FULL'},
+          ),
+        );
+        return;
+      }
+
+      // ── New player joining a game already in progress ────────────────────
+      final displayName = msg.payload['displayName'] as String? ?? pid;
+      conn.playerId = pid;
+      _clients[pid] = conn;
+      _pending.add(LanPlayer(id: pid, displayName: displayName));
+      _playersCtrl.add(players);
+
+      // Splice the new player into the live GameState.
+      final newPlayer = Player(id: pid, displayName: displayName);
+      final newPlayers = [..._state!.players, newPlayer];
+      _state = _state!.copyWith(
+        players: newPlayers,
+        subnets: {..._state!.subnets, pid: 0},
+        captureCount: {..._state!.captureCount, pid: 0},
+        patchShields: {..._state!.patchShields, pid: 0},
+        backdoorBy: {..._state!.backdoorBy, pid: null},
+      );
+
+      _log('PLAYER_JOINED_MIDGAME: $displayName');
+
+      // Send the joiner the current state immediately.
+      _sendTo(
+        conn,
+        GameMessage(
+          type: MessageType.gameStateUpdate,
+          payload: {'state': _state!.toJson(), 'log': 'WIRED_IN'},
+        ),
+      );
+      // Notify everyone else.
+      _broadcastAll(
+        GameMessage(
+          type: MessageType.playerJoined,
+          payload: {'player': {'id': pid, 'displayName': displayName}},
+        ),
+      );
+      // Broadcast updated state to all (so existing players see the new
+      // player in the roster and the new subnet / player-list counts).
+      _broadcastStateUpdate('>> NEW_NODE :: $displayName WIRED_IN');
+
+      _beacon.updateRoom(LanRoom(
+        roomCode: _roomCode,
+        hostAddress: InternetAddress.anyIPv4,
+        tcpPort: _server!.port,
+        hostName: _hostDisplayName,
+        boardSize: _boardSize,
+        maxPlayers: _maxPlayers,
+        currentPlayers: _pending.length,
+        lastSeen: DateTime.now(),
+        gameInProgress: true,
+      ));
       return;
     }
     if (_pending.length >= _maxPlayers) {
@@ -261,11 +346,95 @@ class LanHostService implements IGameTransport {
     final pid = conn.playerId;
     if (pid == null) return;
     _clients.remove(pid);
-    _pending.removeWhere((p) => p.id == pid);
-    _playersCtrl.add(players);
-    _log('PLAYER_LEFT: $pid');
+
+    if (_state == null) {
+      // Pre-game: simply remove from the lobby.
+      _pending.removeWhere((p) => p.id == pid);
+      _playersCtrl.add(players);
+      _log('PLAYER_LEFT_LOBBY: $pid');
+      _broadcastAll(
+          GameMessage(type: MessageType.playerLeft, payload: {'playerId': pid}));
+      return;
+    }
+
+    // ── Mid-game disconnect ────────────────────────────────────────────────
+    _disconnectedPlayers.add(pid);
+
+    final name = _state!.players
+        .firstWhere((p) => p.id == pid,
+            orElse: () => Player(id: pid, displayName: pid))
+        .displayName;
+    _log('PLAYER_DISCONNECTED: $name');
+
+    // Redistribute their subnets evenly among still-connected players.
+    _redistributeSubnets(pid);
+
     _broadcastAll(
         GameMessage(type: MessageType.playerLeft, payload: {'playerId': pid}));
+
+    // Broadcast updated state (new subnet values) and auto-skip if needed.
+    _broadcastStateUpdate('>> SIGNAL_LOST :: $name DISCONNECTED');
+    _autoSkipDisconnected();
+  }
+
+  /// Moves [playerId]'s subnets evenly to all currently connected players.
+  void _redistributeSubnets(String playerId) {
+    final amount = _state!.subnetsOf(playerId);
+    if (amount <= 0) return;
+
+    final active = _state!.players
+        .where((p) => p.id != playerId && !_disconnectedPlayers.contains(p.id))
+        .toList();
+    if (active.isEmpty) return;
+
+    final newSubnets = Map<String, int>.from(_state!.subnets);
+    final share = amount ~/ active.length;
+    var leftover = amount - share * active.length;
+    for (final p in active) {
+      final bonus = leftover > 0 ? 1 : 0;
+      leftover -= bonus;
+      newSubnets[p.id] = (newSubnets[p.id] ?? 0) + share + bonus;
+    }
+    newSubnets[playerId] = 0;
+    _state = _state!.copyWith(subnets: newSubnets);
+  }
+
+  /// Auto-passes for every disconnected player that currently holds the
+  /// active turn.  Loops until the current player is connected or the game
+  /// ends.  Has a guard to avoid infinite loops if everyone disconnects.
+  void _autoSkipDisconnected() {
+    if (_state == null || _disconnectedPlayers.isEmpty) return;
+
+    int guard = 0;
+    final maxGuard = _state!.players.length;
+
+    while (guard < maxGuard &&
+        _state!.phase == GamePhase.attack &&
+        _disconnectedPlayers.contains(_state!.currentPlayerId)) {
+      guard++;
+      final pid = _state!.currentPlayerId;
+      final name = _state!.players
+          .firstWhere((p) => p.id == pid,
+              orElse: () => Player(id: pid, displayName: pid))
+          .displayName;
+
+      final result = GameEngine.pass(_state!, pid);
+      if (result is ActionSuccess) {
+        _state = result.newState;
+        _stateCtrl.add(_state!);
+        _broadcastStateUpdate('>> AUTO_SKIP :: $name OFFLINE');
+
+        if (GameEngine.isGameOver(_state!)) {
+          _broadcastAll(
+              GameMessage(type: MessageType.gameOver, payload: {}));
+          _beacon.stop();
+          _log('GAME_OVER');
+          return;
+        }
+      } else {
+        break;
+      }
+    }
   }
 
   // ── Host action (no socket round-trip) ───────────────────────────────────
@@ -319,7 +488,19 @@ class LanHostService implements IGameTransport {
   }
   void startGame() {
     if (_state != null) return;
-    _beacon.stop();
+    // Keep the beacon alive so disconnected players can still discover and
+    // reconnect.  It will be stopped when the game ends.
+    _beacon.updateRoom(LanRoom(
+      roomCode: _roomCode,
+      hostAddress: InternetAddress.anyIPv4,
+      tcpPort: _server!.port,
+      hostName: _hostDisplayName,
+      boardSize: _boardSize,
+      maxPlayers: _maxPlayers,
+      currentPlayers: _pending.length,
+      lastSeen: DateTime.now(),
+      gameInProgress: true,
+    ));
 
     final ps = _pending
         .map((p) => Player(id: p.id, displayName: p.displayName))
@@ -346,10 +527,12 @@ class LanHostService implements IGameTransport {
 
         if (GameEngine.isGameOver(_state!)) {
           _broadcastAll(GameMessage(type: MessageType.gameOver, payload: {}));
+          _beacon.stop(); // Room is finished — stop advertising.
           _log('GAME_OVER');
           return;
         }
-        // DDOS skips and backdoor hijacks are auto-resolved inside the engine.
+        // Auto-skip any disconnected players who now hold the turn.
+        _autoSkipDisconnected();
 
       case ActionFailure(:final reason):
         _log('ACTION_ERROR: $reason');

@@ -20,6 +20,10 @@ class LanRoom {
   final int currentPlayers;
   final DateTime lastSeen;
 
+  /// True while a game is already in progress (only reconnecting players
+  /// may join; new players are rejected).
+  final bool gameInProgress;
+
   const LanRoom({
     required this.roomCode,
     required this.hostAddress,
@@ -29,9 +33,15 @@ class LanRoom {
     required this.maxPlayers,
     required this.currentPlayers,
     required this.lastSeen,
+    this.gameInProgress = false,
   });
 
-  LanRoom copyWith({int? currentPlayers, DateTime? lastSeen}) => LanRoom(
+  LanRoom copyWith({
+    int? currentPlayers,
+    DateTime? lastSeen,
+    bool? gameInProgress,
+  }) =>
+      LanRoom(
         roomCode: roomCode,
         hostAddress: hostAddress,
         tcpPort: tcpPort,
@@ -40,12 +50,13 @@ class LanRoom {
         maxPlayers: maxPlayers,
         currentPlayers: currentPlayers ?? this.currentPlayers,
         lastSeen: lastSeen ?? this.lastSeen,
+        gameInProgress: gameInProgress ?? this.gameInProgress,
       );
 
   // Beacon payload format (pipe-separated, no spaces):
-  // roomCode|tcpPort|hostName|boardSize|maxPlayers|currentPlayers
+  // roomCode|tcpPort|hostName|boardSize|maxPlayers|currentPlayers|gameInProgress
   String get _beaconPayload =>
-      '$roomCode|$tcpPort|$hostName|$boardSize|$maxPlayers|$currentPlayers';
+      '$roomCode|$tcpPort|$hostName|$boardSize|$maxPlayers|$currentPlayers|${gameInProgress ? 1 : 0}';
 
   static LanRoom? tryParse(String payload, InternetAddress sender) {
     try {
@@ -60,6 +71,7 @@ class LanRoom {
         maxPlayers: int.parse(parts[4]),
         currentPlayers: int.parse(parts[5]),
         lastSeen: DateTime.now(),
+        gameInProgress: parts.length >= 7 && parts[6] == '1',
       );
     } catch (_) {
       return null;

@@ -320,23 +320,33 @@ class _WaitingPanel extends StatelessWidget {
             if (players.length < maxPlayers)
               Row(
                 children: [
-                  const SizedBox(
-                    width: 10,
-                    height: 10,
-                    child: CircularProgressIndicator(
-                      color: CyberpunkColors.cyanDim,
-                      strokeWidth: 1,
+                  if (players.length < 2) ...[    
+                    const SizedBox(
+                      width: 10,
+                      height: 10,
+                      child: CircularProgressIndicator(
+                        color: CyberpunkColors.cyanDim,
+                        strokeWidth: 1,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Waiting for ${maxPlayers - players.length} more node(s) to wire in…',
-                    style: const TextStyle(
-                      color: CyberpunkColors.textDim,
-                      fontSize: 9,
-                      fontFamily: 'monospace',
+                    const SizedBox(width: 8),
+                    Text(
+                      'Waiting for ${2 - players.length} more node(s) to wire in…',
+                      style: const TextStyle(
+                        color: CyberpunkColors.textDim,
+                        fontSize: 9,
+                        fontFamily: 'monospace',
+                      ),
                     ),
-                  ),
+                  ] else
+                    Text(
+                      'Ready to start — up to ${maxPlayers - players.length} more node(s) can still join.',
+                      style: const TextStyle(
+                        color: CyberpunkColors.green,
+                        fontSize: 9,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
                 ],
               ),
 
@@ -371,7 +381,7 @@ class _WaitingPanel extends StatelessWidget {
                 child: SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: players.length >= maxPlayers ? onStart : null,
+                    onPressed: players.length >= 2 ? onStart : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor:
                           CyberpunkColors.green.withValues(alpha: 0.15),
