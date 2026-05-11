@@ -35,9 +35,12 @@ class BoardWidget extends StatefulWidget {
 }
 
 class _BoardWidgetState extends State<BoardWidget>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   // ── Animation ─────────────────────────────────────────────────────────────
   late final AnimationController _pulseCtrl;
+  late final AnimationController _packetCtrl;  // data packet travel
+  late final AnimationController _flickerCtrl; // CRT flicker
+  double _flickerAlpha = 0.0;
 
   // ── View state ────────────────────────────────────────────────────────────
   double _azimuth   = math.pi / 4;     // 45° — classic isometric
@@ -70,11 +73,41 @@ class _BoardWidgetState extends State<BoardWidget>
       vsync: this,
       duration: const Duration(milliseconds: 1800),
     )..repeat(reverse: true);
+
+    // Packets travel across the network every ~4 s
+    _packetCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 4200),
+    )..repeat();
+
+    // Occasional low-frequency CRT flicker
+    _flickerCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 80),
+    );
+    _scheduleFlicker();
+  }
+
+  void _scheduleFlicker() {
+    Future.delayed(
+      Duration(milliseconds: 3000 + math.Random().nextInt(5000)),
+      () {
+        if (!mounted) return;
+        _flickerCtrl.forward(from: 0).then((_) {
+          if (!mounted) return;
+          setState(() => _flickerAlpha = 0.0);
+          _scheduleFlicker();
+        });
+        setState(() => _flickerAlpha = 0.6 + math.Random().nextDouble() * 0.4);
+      },
+    );
   }
 
   @override
   void dispose() {
     _pulseCtrl.dispose();
+    _packetCtrl.dispose();
+    _flickerCtrl.dispose();
     super.dispose();
   }
 
@@ -149,18 +182,20 @@ class _BoardWidgetState extends State<BoardWidget>
           onScaleUpdate: _onScaleUpdate,
           onScaleEnd:    _onScaleEnd,
           child: AnimatedBuilder(
-            animation: _pulseCtrl,
+            animation: Listenable.merge([_pulseCtrl, _packetCtrl, _flickerCtrl]),
             builder: (_, __) => RepaintBoundary(
               child: CustomPaint(
                 size: _canvasSize,
                 painter: BoardPainter(
-                  board:      widget.board,
-                  boardSize:  widget.boardSize,
-                  lastPlaced: widget.lastPlaced,
-                  starPulse:  _pulseCtrl.value,
-                  azimuth:    _azimuth,
-                  elevation:  _elevation,
-                  zoom:       _zoom,
+                  board:        widget.board,
+                  boardSize:    widget.boardSize,
+                  lastPlaced:   widget.lastPlaced,
+                  starPulse:    _pulseCtrl.value,
+                  packetPhase:  _packetCtrl.value,
+                  flickerAlpha: _flickerAlpha,
+                  azimuth:      _azimuth,
+                  elevation:    _elevation,
+                  zoom:         _zoom,
                 ),
               ),
             ),

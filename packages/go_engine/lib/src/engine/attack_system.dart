@@ -2,6 +2,7 @@ import '../models/attack.dart';
 import '../models/board.dart';
 import '../models/game_state.dart';
 import '../models/position.dart';
+import 'go_rules.dart';
 
 /// Resolves attack actions and manages active effects.
 ///
@@ -59,6 +60,17 @@ class AttackSystem {
         if (state.board.at(action.targetPosition!) != null) {
           return 'POSITION_OCCUPIED';
         }
+        // Suicide check: the honeypot stone must have at least one liberty
+        // after placement (skip KO – honeypot bypasses normal turn history).
+        final honeypotColor =
+            state.currentPlayerColor(action.attackerPlayerId);
+        final suicideError = GoRules.validatePlacement(
+          state.board,
+          action.targetPosition!,
+          honeypotColor,
+          const [], // no KO check for honeypot
+        );
+        if (suicideError != null) return 'HONEYPOT_INVALID: $suicideError';
 
       case AttackType.backdoor:
         // No stacking: reject if target already has an active backdoor.

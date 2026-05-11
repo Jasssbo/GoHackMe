@@ -64,8 +64,8 @@ class _GlitchOverlayState extends State<GlitchOverlay>
           y: _rng.nextDouble(),
           h: 0.008 + _rng.nextDouble() * 0.030,
           dx: (_rng.nextDouble() - 0.5) * 55,
-          color: isCyan ? CyberpunkColors.cyan : CyberpunkColors.magenta,
-          alpha: 0.28 + _rng.nextDouble() * 0.45,
+            color: isCyan ? CyberpunkColors.cyan : CyberpunkColors.amber,
+            alpha: 0.18 + _rng.nextDouble() * 0.28,
         );
       });
     });
@@ -73,7 +73,7 @@ class _GlitchOverlayState extends State<GlitchOverlay>
   }
 
   void _schedule() {
-    final ms = 800 + _rng.nextInt(3500);
+    final ms = 1400 + _rng.nextInt(4500);
     Future.delayed(Duration(milliseconds: ms), () {
       if (!mounted) return;
       setState(() {
@@ -83,8 +83,8 @@ class _GlitchOverlayState extends State<GlitchOverlay>
             y: _rng.nextDouble(),
             h: 0.004 + _rng.nextDouble() * 0.018,
             dx: (_rng.nextDouble() - 0.5) * 28,
-            color: isCyan ? CyberpunkColors.cyan : CyberpunkColors.magenta,
-            alpha: 0.12 + _rng.nextDouble() * 0.28,
+            color: isCyan ? CyberpunkColors.cyan : CyberpunkColors.amber,
+            alpha: 0.07 + _rng.nextDouble() * 0.16,
           );
         });
       });
@@ -214,7 +214,7 @@ class _GlitchPainter extends CustomPainter {
         rect.translate(-s.dx * fade * 0.5, 0),
         Paint()
           ..color = (s.color == CyberpunkColors.cyan
-                  ? CyberpunkColors.magenta
+                  ? CyberpunkColors.amber
                   : CyberpunkColors.cyan)
               .withValues(alpha: s.alpha * 0.2 * fade),
       );

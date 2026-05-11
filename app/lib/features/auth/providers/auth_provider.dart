@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../services/name_history_service.dart';
+
 /// Holds the locally-stored player identity (display name + stable UUID).
 class AuthState {
   final String playerId;
@@ -31,6 +33,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   Future<void> setDisplayName(String name) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyName, name);
+    await NameHistoryService.addName(name);
     final current = state.valueOrNull;
     if (current != null) {
       state = AsyncData(current.copyWith(displayName: name));

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_engine/go_engine.dart';
 
 import '../../../core/theme/cyberpunk_colors.dart';
+import '../../../core/theme/ui_scale.dart';
 import '../../../core/widgets/glitch_overlay.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/local_game_provider.dart';
@@ -182,7 +183,7 @@ class _GameOverScreen extends StatelessWidget {
 
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 400),
+        constraints: BoxConstraints(maxWidth: context.s(400)),
         child: Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(

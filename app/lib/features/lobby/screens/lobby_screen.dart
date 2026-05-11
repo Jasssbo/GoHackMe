@@ -129,42 +129,49 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
   Widget _buildBoot() {
     return Scaffold(
       backgroundColor: CyberpunkColors.background,
-      body: Center(
+      body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40),
+          padding: const EdgeInsets.fromLTRB(36, 48, 36, 32),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'ʕ•ᴥ•ʔ',
+              Text(
+                'GOHACKME:NET',
                 style: TextStyle(
-                  color: CyberpunkColors.green,
-                  fontSize: 30,
+                  color: CyberpunkColors.green.withValues(alpha: 0.55),
+                  fontSize: 9,
+                  letterSpacing: 3,
                   fontFamily: 'monospace',
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 4),
+              Container(
+                height: 1,
+                color: CyberpunkColors.cyanDim.withValues(alpha: 0.18),
+              ),
+              const SizedBox(height: 28),
               ..._bootLines.take(_bootStep).map(
-                    (line) => Text(
-                      '> $line',
-                      style: const TextStyle(
-                        color: CyberpunkColors.green,
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                        letterSpacing: 1.5,
-                        height: 2.0,
+                    (line) => Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Text(
+                        line,
+                        style: TextStyle(
+                          color: CyberpunkColors.green.withValues(alpha: 0.55),
+                          fontSize: 9.5,
+                          fontFamily: 'monospace',
+                          letterSpacing: 1.3,
+                          height: 1.7,
+                        ),
                       ),
                     ),
                   ),
               if (_bootStep < _bootLines.length)
-                const Text(
-                  '> _',
+                Text(
+                  '▌',
                   style: TextStyle(
-                    color: CyberpunkColors.green,
-                    fontSize: 12,
+                    color: CyberpunkColors.green.withValues(alpha: 0.45),
+                    fontSize: 9.5,
                     fontFamily: 'monospace',
-                    height: 2.0,
                   ),
                 ),
             ],
@@ -188,40 +195,28 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
               const SizedBox(height: 36),
 
               // ── Title ─────────────────────────────────────────────────
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'ʕ•ᴥ•ʔ',
+                  Text(
+                    'GoHackMe',
                     style: TextStyle(
-                      color: CyberpunkColors.green,
-                      fontSize: 24,
+                      color: CyberpunkColors.green.withValues(alpha: 0.95),
+                      fontSize: 26,
+                      letterSpacing: 8,
+                      fontWeight: FontWeight.w700,
                       fontFamily: 'monospace',
                     ),
                   ),
-                  const SizedBox(width: 14),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'GoHackMe',
-                        style: TextStyle(
-                          color: CyberpunkColors.green,
-                          fontSize: 30,
-                          letterSpacing: 6,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      Text(
-                        'PROTOCOL 7 :: WIRED GO',
-                        style: TextStyle(
-                          color: CyberpunkColors.green.withValues(alpha: 0.40),
-                          fontSize: 10,
-                          letterSpacing: 4,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 4),
+                  Text(
+                    'PROTOCOL_7  ·  WIRED GO NETWORK',
+                    style: TextStyle(
+                      color: CyberpunkColors.cyanDim.withValues(alpha: 0.80),
+                      fontSize: 9,
+                      letterSpacing: 3,
+                      fontFamily: 'monospace',
+                    ),
                   ),
                 ],
               ),
@@ -398,10 +393,13 @@ class _LainPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
       decoration: BoxDecoration(
-        border: Border.all(color: accentColor.withValues(alpha: 0.35)),
-        color: accentColor.withValues(alpha: 0.03),
+        border: Border(
+          left: BorderSide(color: accentColor.withValues(alpha: 0.55), width: 2),
+          bottom: BorderSide(color: accentColor.withValues(alpha: 0.12), width: 1),
+        ),
+        color: accentColor.withValues(alpha: 0.025),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -409,9 +407,9 @@ class _LainPanel extends StatelessWidget {
           Text(
             header,
             style: TextStyle(
-              color: accentColor,
-              fontSize: 11,
-              letterSpacing: 2,
+              color: accentColor.withValues(alpha: 0.95),
+              fontSize: 10,
+              letterSpacing: 2.5,
               fontFamily: 'monospace',
               fontWeight: FontWeight.w700,
             ),
@@ -419,11 +417,12 @@ class _LainPanel extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             description,
-            style: const TextStyle(
-              color: CyberpunkColors.textDim,
+            style: TextStyle(
+              color: CyberpunkColors.textSecondary.withValues(alpha: 0.85),
               fontSize: 9,
               fontFamily: 'monospace',
-              height: 1.7,
+              height: 1.8,
+              letterSpacing: 0.4,
             ),
           ),
           const SizedBox(height: 14),
@@ -442,44 +441,45 @@ class _WiredLockedPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const indigo = Color(0xFF7B4FAF);
-    const indigoDim = Color(0xFF3A1A5E);
-    const indigoBg = Color(0xFF150828);
+    const indigo = Color(0xFF6A3A9F);
+    const indigoDim = Color(0xFF2A0F48);
+    const indigoBg = Color(0xFF0D0514);
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
       decoration: BoxDecoration(
-        border: Border.all(color: indigoDim.withValues(alpha: 0.7)),
-        color: indigoBg.withValues(alpha: 0.5),
+        border: Border(
+          left: BorderSide(color: indigo.withValues(alpha: 0.35), width: 2),
+          bottom: BorderSide(color: indigoDim.withValues(alpha: 0.5), width: 1),
+        ),
+        color: indigoBg.withValues(alpha: 0.6),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Text(
+              Text(
                 '// THE_WIRED',
                 style: TextStyle(
-                  color: indigo,
-                  fontSize: 11,
-                  letterSpacing: 2,
+                  color: indigo.withValues(alpha: 0.70),
+                  fontSize: 10,
+                  letterSpacing: 2.5,
                   fontFamily: 'monospace',
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(width: 10),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
-                  border: Border.all(
-                      color: indigo.withValues(alpha: 0.45)),
+                  border: Border.all(color: indigoDim.withValues(alpha: 0.8)),
                 ),
-                child: const Text(
-                  'UPLINK NOT ESTABLISHED',
+                child: Text(
+                  'UPLINK ABSENT',
                   style: TextStyle(
-                    color: indigo,
-                    fontSize: 8,
+                    color: indigo.withValues(alpha: 0.45),
+                    fontSize: 7.5,
                     letterSpacing: 1.5,
                     fontFamily: 'monospace',
                   ),
@@ -488,23 +488,24 @@ class _WiredLockedPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Global network. Entities from all layers. No distance.',
             style: TextStyle(
-              color: Color(0xFF4A2A6A),
+              color: indigo.withValues(alpha: 0.22),
               fontSize: 9,
               fontFamily: 'monospace',
-              height: 1.7,
+              height: 1.8,
+              letterSpacing: 0.4,
             ),
           ),
           const SizedBox(height: 14),
           Text(
-            '> PROTOCOL_7 :: OFFLINE ${cursorVisible ? '_' : ' '}',
-            style: const TextStyle(
-              color: Color(0xFF5A3080),
-              fontSize: 11,
+            '> PROTOCOL_7  ·  SIGNAL_ABSENT  ${cursorVisible ? '▌' : ' '}',
+            style: TextStyle(
+              color: indigo.withValues(alpha: 0.30),
+              fontSize: 9.5,
               fontFamily: 'monospace',
-              letterSpacing: 1.5,
+              letterSpacing: 1.2,
             ),
           ),
         ],

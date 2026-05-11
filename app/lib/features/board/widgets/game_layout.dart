@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_engine/go_engine.dart';
 
 import '../../../core/theme/cyberpunk_colors.dart';
+import '../../../core/theme/ui_scale.dart';
 import 'board_widget.dart';
 
 // ── GameLayout ────────────────────────────────────────────────────────────
@@ -108,14 +109,22 @@ class _GameLayoutState extends State<GameLayout> {
           // ── Position-pick hint banner ────────────────────────
           if (isPicking)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-              color: CyberpunkColors.magenta.withValues(alpha: 0.12),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: CyberpunkColors.amber.withValues(alpha: 0.07),
+                border: Border(
+                  bottom: BorderSide(
+                    color: CyberpunkColors.amber.withValues(alpha: 0.25),
+                    width: 1,
+                  ),
+                ),
+              ),
               child: Row(
                 children: [
                   Text(
-                    '>> ${_pendingPositionAttack!.type.name.toUpperCase()}_MODE :: TAP_TARGET_NODE',
-                    style: const TextStyle(
-                      color: CyberpunkColors.magenta,
+                    '>> ${_pendingPositionAttack!.type.name.toUpperCase()}  ·  TAP_TARGET_NODE',
+                    style: TextStyle(
+                      color: CyberpunkColors.amber.withValues(alpha: 0.95),
                       fontSize: 9,
                       letterSpacing: 1.2,
                       fontFamily: 'monospace',
@@ -124,10 +133,10 @@ class _GameLayoutState extends State<GameLayout> {
                   const Spacer(),
                   InkWell(
                     onTap: () => setState(() => _pendingPositionAttack = null),
-                    child: const Text(
+                    child: Text(
                       '[ABORT]',
                       style: TextStyle(
-                        color: CyberpunkColors.textDim,
+                        color: CyberpunkColors.textSecondary.withValues(alpha: 0.80),
                         fontSize: 9,
                         letterSpacing: 1,
                         fontFamily: 'monospace',
@@ -142,10 +151,18 @@ class _GameLayoutState extends State<GameLayout> {
           if (widget.state.phase == GamePhase.hijackedVictimPlacement &&
               isMyTurn)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-              color: CyberpunkColors.error.withValues(alpha: 0.10),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: CyberpunkColors.error.withValues(alpha: 0.07),
+                border: Border(
+                  left: BorderSide(
+                    color: CyberpunkColors.error.withValues(alpha: 0.55),
+                    width: 2,
+                  ),
+                ),
+              ),
               child: const Text(
-                '>> BACKDOOR :: HIJACK_ACTIVE :: TAP TO PLACE ENEMY NODE',
+                '>> BACKDOOR  ·  HIJACK_ACTIVE  ·  TAP TO PLACE ENEMY NODE',
                 style: TextStyle(
                   color: CyberpunkColors.error,
                   fontSize: 9,
@@ -201,7 +218,7 @@ class _GameLayoutState extends State<GameLayout> {
                   ),
                 ),
                 // Vertical separator
-                Container(width: 1, color: const Color(0xFF0D2035)),
+                Container(width: 1, color: const Color(0xFF0C1814)),
                 // Attacks / status + player list
                 GameSidePanel(
                   state: widget.state,
@@ -242,29 +259,41 @@ class GameStatusStrip extends StatelessWidget {
     final canPass  = isMyTurn && state.phase == GamePhase.attack;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      color: const Color(0xFF050D15),
+      decoration: const BoxDecoration(
+        color: Color(0xFF040709),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFF0D1A18), width: 1),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       child: Row(
         children: [
-          // PASS — top-left, only when it's your turn
           if (canPass && onPass != null) ...[
             _StripButton(
               label: 'PASS',
-              color: CyberpunkColors.yellow,
+              color: CyberpunkColors.amber,
               onTap: onPass!,
             ),
             const SizedBox(width: 8),
           ],
-          AsciiChip(
-            isMyTurn ? '▶ ${state.currentPlayer.displayName}' : '◌ WAIT',
-            color: isMyTurn ? CyberpunkColors.cyan : CyberpunkColors.textDim,
+          Text(
+            isMyTurn
+                ? '◉ ${state.currentPlayer.displayName}'
+                : '○  SIGNAL WAIT',
+            style: TextStyle(
+              color: isMyTurn
+                  ? CyberpunkColors.cyan.withValues(alpha: 0.95)
+                  : CyberpunkColors.textSecondary.withValues(alpha: 0.75),
+              fontSize: 9.5,
+              letterSpacing: 1.2,
+              fontFamily: 'monospace',
+            ),
           ),
           const Spacer(),
-          // EXIT — top-right, always visible
           if (onExit != null)
             _StripButton(
               label: 'EXIT',
-              color: Colors.white,
+              color: CyberpunkColors.textSecondary,
               onTap: onExit!,
             ),
         ],
@@ -316,8 +345,8 @@ class _StripButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
-          border: Border.all(color: color.withValues(alpha: 0.45), width: 1),
-          color: color.withValues(alpha: 0.07),
+          border: Border.all(color: color.withValues(alpha: 0.70), width: 1),
+          color: color.withValues(alpha: 0.10),
         ),
         child: Text(
           label,
@@ -354,7 +383,7 @@ class GameSidePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 180,
+      width: context.s(180),
       decoration: const BoxDecoration(
         color: Color(0xFF050D15),
       ),
@@ -416,22 +445,36 @@ class GameSidePanel extends StatelessWidget {
       final idx = state.players.indexOf(p);
       final color = colors[idx % colors.length];
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-        color:
-            isCurrent ? color.withValues(alpha: 0.06) : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: isCurrent
+            ? BoxDecoration(
+                border: Border(
+                  left: BorderSide(
+                    color: color.withValues(alpha: 0.85),
+                    width: 2,
+                  ),
+                ),
+                color: color.withValues(alpha: 0.10),
+              )
+            : const BoxDecoration(
+                border: Border(
+                  left: BorderSide(color: Colors.transparent, width: 2),
+                ),
+              ),
         child: Row(
           children: [
-            Text(
-              isCurrent ? '▶' : '  ',
-              style: TextStyle(color: color, fontSize: 9),
+            Container(
+              width: 5,
+              height: 5,
+              margin: const EdgeInsets.only(right: 6),
+              color: color.withValues(alpha: isCurrent ? 1.0 : 0.45),
             ),
-            const SizedBox(width: 4),
             Expanded(
               child: Text(
                 '${p.displayName}${isLocal ? ' [YOU]' : ''}',
                 style: TextStyle(
-                  color: color.withValues(alpha: 0.85),
-                  fontSize: 10,
+                  color: color.withValues(alpha: isCurrent ? 1.0 : 0.65),
+                  fontSize: 9.5,
                   letterSpacing: 0.8,
                   fontFamily: 'monospace',
                 ),
@@ -441,8 +484,9 @@ class GameSidePanel extends StatelessWidget {
             Text(
               'SN:${state.subnetsOf(p.id)}',
               style: TextStyle(
-                color: CyberpunkColors.yellow.withValues(alpha: 0.6),
-                fontSize: 9,
+                color: CyberpunkColors.amber
+                    .withValues(alpha: isCurrent ? 0.95 : 0.65),
+                fontSize: 8.5,
                 fontFamily: 'monospace',
               ),
             ),
@@ -462,15 +506,26 @@ class PanelHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: CyberpunkColors.cyanDim,
-          fontSize: 9,
-          letterSpacing: 2,
-          fontFamily: 'monospace',
-        ),
+      padding: const EdgeInsets.fromLTRB(10, 7, 10, 5),
+      child: Row(
+        children: [
+          Text(
+            '◈  ',
+            style: TextStyle(
+              color: CyberpunkColors.cyanDim.withValues(alpha: 0.80),
+              fontSize: 7,
+            ),
+          ),
+          Text(
+            text,
+            style: TextStyle(
+              color: CyberpunkColors.cyanDim.withValues(alpha: 0.95),
+              fontSize: 8.5,
+              letterSpacing: 2,
+              fontFamily: 'monospace',
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -483,8 +538,7 @@ class PanelDivider extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 1,
-      margin: const EdgeInsets.symmetric(horizontal: 10),
-      color: const Color(0xFF0D2035),
+      color: const Color(0xFF0C1814),
     );
   }
 }
@@ -564,7 +618,7 @@ class _AttackCodexState extends State<AttackCodex> {
                         TextSpan(
                           text: '${card.subnetCost}SN  ',
                           style: const TextStyle(
-                            color: CyberpunkColors.yellow,
+                            color: CyberpunkColors.amber,
                             fontSize: 8,
                             fontFamily: 'monospace',
                           ),
@@ -572,7 +626,7 @@ class _AttackCodexState extends State<AttackCodex> {
                         TextSpan(
                           text: card.description,
                           style: const TextStyle(
-                            color: CyberpunkColors.textDim,
+                            color: CyberpunkColors.textSecondary,
                             fontSize: 8,
                             letterSpacing: 0.2,
                             fontFamily: 'monospace',
@@ -674,9 +728,9 @@ class AttackCardsPanel extends StatelessWidget {
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                   decoration: BoxDecoration(
                     border: Border.all(
-                      color: color.withValues(alpha: enabled ? 0.6 : 0.2),
+                      color: color.withValues(alpha: enabled ? 0.85 : 0.35),
                     ),
-                    color: color.withValues(alpha: enabled ? 0.04 : 0.0),
+                    color: color.withValues(alpha: enabled ? 0.08 : 0.0),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -696,8 +750,8 @@ class AttackCardsPanel extends StatelessWidget {
                           Text(
                             '${card.subnetCost}SN',
                             style: TextStyle(
-                              color: CyberpunkColors.yellow
-                                  .withValues(alpha: enabled ? 0.8 : 0.3),
+                              color: CyberpunkColors.amber
+                                  .withValues(alpha: enabled ? 0.95 : 0.45),
                               fontSize: 9,
                               fontFamily: 'monospace',
                             ),
@@ -708,7 +762,7 @@ class AttackCardsPanel extends StatelessWidget {
                       Text(
                         card.description,
                         style: TextStyle(
-                          color: color.withValues(alpha: enabled ? 0.45 : 0.25),
+                          color: color.withValues(alpha: enabled ? 0.75 : 0.40),
                           fontSize: 8,
                           letterSpacing: 0.3,
                           fontFamily: 'monospace',
@@ -743,42 +797,52 @@ class AsciiTargetDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: CyberpunkColors.surface,
+      backgroundColor: const Color(0xFF070C10),
       shape: const RoundedRectangleBorder(),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          border: Border.all(color: CyberpunkColors.cyanDim, width: 1),
+          border: Border.all(
+            color: CyberpunkColors.cyanDim.withValues(alpha: 0.70),
+            width: 1,
+          ),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '╔══ ${card.terminalName} ══╗',
-              style: const TextStyle(
-                color: CyberpunkColors.cyan,
-                fontSize: 11,
-                letterSpacing: 1.5,
+              '// ${card.terminalName}',
+              style: TextStyle(
+                color: CyberpunkColors.cyan.withValues(alpha: 0.95),
+                fontSize: 10,
+                letterSpacing: 2,
                 fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 4),
+            Container(
+              height: 1,
+              color: CyberpunkColors.cyanDim.withValues(alpha: 0.50),
+            ),
+            const SizedBox(height: 8),
             Text(
               card.description,
-              style: const TextStyle(
-                color: CyberpunkColors.textSecondary,
-                fontSize: 10,
+              style: TextStyle(
+                color: CyberpunkColors.textSecondary.withValues(alpha: 0.90),
+                fontSize: 9,
                 fontFamily: 'monospace',
+                height: 1.5,
               ),
             ),
             const SizedBox(height: 12),
-            const Text(
-              '> SELECT_TARGET:',
+            Text(
+              '> SELECT_TARGET',
               style: TextStyle(
-                color: CyberpunkColors.green,
-                fontSize: 10,
-                letterSpacing: 1,
+                color: CyberpunkColors.green.withValues(alpha: 0.95),
+                fontSize: 9,
+                letterSpacing: 1.2,
                 fontFamily: 'monospace',
               ),
             ),
@@ -787,12 +851,12 @@ class AsciiTargetDialog extends StatelessWidget {
               (p) => InkWell(
                 onTap: () => Navigator.pop(context, p),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  padding: const EdgeInsets.symmetric(vertical: 5),
                   child: Text(
-                    '  [>>] ${p.displayName}',
-                    style: const TextStyle(
-                      color: CyberpunkColors.magenta,
-                      fontSize: 11,
+                    '  [>>]  ${p.displayName}',
+                    style: TextStyle(
+                      color: CyberpunkColors.amber.withValues(alpha: 0.95),
+                      fontSize: 10,
                       letterSpacing: 1,
                       fontFamily: 'monospace',
                     ),
@@ -803,12 +867,12 @@ class AsciiTargetDialog extends StatelessWidget {
             const SizedBox(height: 8),
             InkWell(
               onTap: () => Navigator.pop(context),
-              child: const Text(
+              child: Text(
                 '  [X]  ABORT',
                 style: TextStyle(
-                  color: CyberpunkColors.textDim,
-                  fontSize: 10,
-                  letterSpacing: 1,
+                  color: CyberpunkColors.textSecondary.withValues(alpha: 0.75),
+                  fontSize: 9,
+                  letterSpacing: 1.2,
                   fontFamily: 'monospace',
                 ),
               ),
@@ -837,16 +901,20 @@ class GameTerminalLog extends StatelessWidget {
         itemBuilder: (_, i) {
           final line = lines[lines.length - 1 - i];
           final isError = line.contains('ERROR');
+          final isRecent = i == 0;
           return Text(
             line,
             style: TextStyle(
               color: isError
                   ? CyberpunkColors.error
-                  : CyberpunkColors.green.withValues(alpha: 0.75),
+                  : CyberpunkColors.green.withValues(
+                      alpha:
+                          isRecent ? 0.95 : (0.95 - i * 0.04).clamp(0.45, 0.95),
+                    ),
               fontSize: 8.5,
               letterSpacing: 0.3,
               fontFamily: 'monospace',
-              height: 1.5,
+              height: 1.55,
             ),
           );
         },

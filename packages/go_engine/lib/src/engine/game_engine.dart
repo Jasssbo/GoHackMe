@@ -121,7 +121,7 @@ class GameEngine {
         GoRules.applyPlacement(state.board, pos, color);
 
     // Handle honeypot captures.
-    final (finalBoard, honeypotLog) =
+    final (finalBoard, honeypotLog, honeypotBonusCaptures) =
         _resolveHoneypots(state, boardAfterMove, capturedPositions);
 
     final captureCount = capturedPositions.length;
@@ -133,6 +133,11 @@ class GameEngine {
 
     final newSubnets = Map<String, int>.from(state.subnets);
     newSubnets[playerId] = (newSubnets[playerId] ?? 0) + earned;
+    // Credit honeypot-owner bonus captures.
+    for (final entry in honeypotBonusCaptures.entries) {
+      newSubnets[entry.key] = (newSubnets[entry.key] ?? 0) + entry.value;
+      newCaptures[entry.key] = (newCaptures[entry.key] ?? 0) + entry.value;
+    }
 
     final newHistory = [
       ...state.boardHistory,
@@ -281,6 +286,37 @@ class GameEngine {
                 Player(id: action.targetPlayerId, displayName: '???'))
         .displayName;
 
+    // Worm: the replacement stone may enclose adjacent enemy groups that now
+    // have 0 liberties – resolve those captures and credit subnets.
+    if (action.type == AttackType.worm) {
+      final wormPos = action.targetPosition!;
+      final attackerColor = state.currentPlayerColor(action.attackerPlayerId);
+      final (boardAfterWorm, wormCaptures) =
+          GoRules.applyCapturesAfterPlacement(newState.board, wormPos, attackerColor);
+
+      final resolvedState = wormCaptures.isEmpty
+          ? newState
+          : newState.copyWith(
+              board: boardAfterWorm,
+              subnets: {
+                ...newState.subnets,
+                action.attackerPlayerId:
+                    newState.subnetsOf(action.attackerPlayerId) +
+                        wormCaptures.length,
+              },
+              captureCount: {
+                ...newState.captureCount,
+                action.attackerPlayerId:
+                    (newState.captureCount[action.attackerPlayerId] ?? 0) +
+                        wormCaptures.length,
+              },
+            );
+      final wormLog = wormCaptures.isNotEmpty
+          ? '>> ATTACK_VECTOR :: ${card.terminalName} >> $targetName | NODE_CAPTURE: ${wormCaptures.length} [+${wormCaptures.length} SN]'
+          : '>> ATTACK_VECTOR :: ${card.terminalName} >> $targetName';
+      return ActionSuccess(resolvedState, logMessage: wormLog);
+    }
+
     return ActionSuccess(
       newState,
       logMessage: '>> ATTACK_VECTOR :: ${card.terminalName} >> $targetName',
@@ -395,7 +431,7 @@ class GameEngine {
         GoRules.applyPlacement(state.board, pos, color);
 
     // Resolve any honeypot captures.
-    final (finalBoard, honeypotLog) =
+    final (finalBoard, honeypotLog, honeypotBonusCaptures) =
         _resolveHoneypots(state, boardAfterMove, capturedPositions);
 
     final captureCount = capturedPositions.length;
@@ -407,6 +443,12 @@ class GameEngine {
 
     final newSubnets = Map<String, int>.from(state.subnets);
     newSubnets[playerId] = (newSubnets[playerId] ?? 0) + earned;
+    // Credit honeypot-owner bonus captures (1 subnet each, no base or star bonus).
+    for (final entry in honeypotBonusCaptures.entries) {
+      newSubnets[entry.key] = (newSubnets[entry.key] ?? 0) + entry.value;
+      newCaptureCount[entry.key] =
+          (newCaptureCount[entry.key] ?? 0) + entry.value;
+    }
 
     final newHistory = [
       ...state.boardHistory,
@@ -442,17 +484,21 @@ class GameEngine {
   }
 
   /// After [boardAfterCaptures], explodes any honeypot stones that were
-  /// captured.  Returns the updated board and a log snippet.
+  /// captured.  Returns the updated board, a log snippet, and a map of
+  /// extra captures credited to each honeypot owner (1 subnet per capture).
   ///
-  /// A honeypot explosion places the owner's stone back at the captured
-  /// position plus any adjacent intersections that are empty.
-  static (Board, String) _resolveHoneypots(
+  /// The explosion places the owner's stone back at the captured position
+  /// plus all in-bounds neighbours (overwriting enemy stones).  After
+  /// placing all explosion stones, capture resolution is run for each
+  /// newly placed stone so the board remains valid.
+  static (Board, String, Map<String, int>) _resolveHoneypots(
     GameState state,
     Board boardAfterCaptures,
     Set<Position> capturedPositions,
   ) {
     var board = boardAfterCaptures;
     final log = StringBuffer();
+    final bonusCaptures = <String, int>{};
 
     for (final pos in capturedPositions) {
       // The captured stone's colour is taken from the PRE-capture board.
@@ -462,16 +508,34 @@ class GameEngine {
 
       if (!AttackSystem.isHoneypot(state, pos, ownerId)) continue;
 
-      // Explode: reclaim pos + ALL 4 in-bounds neighbours (overwrite enemy stones too).
-      board = board.place(pos, capturedColor);
-      for (final neighbour in board.neighborsOf(pos)) {
-        board = board.place(neighbour, capturedColor);
+      // Collect explosion positions BEFORE placing any stones.
+      final explosionPositions = <Position>[pos, ...board.neighborsOf(pos)];
+
+      // Place all explosion stones, counting overwritten enemy stones.
+      for (final ePos in explosionPositions) {
+        final existing = board.at(ePos);
+        if (existing != null && existing != capturedColor) {
+          bonusCaptures[ownerId] = (bonusCaptures[ownerId] ?? 0) + 1;
+        }
+        board = board.place(ePos, capturedColor);
       }
+
+      // Resolve captures for each explosion stone so the board stays valid.
+      for (final ePos in explosionPositions) {
+        final (newBoard, triggered) =
+            GoRules.applyCapturesAfterPlacement(board, ePos, capturedColor);
+        board = newBoard;
+        if (triggered.isNotEmpty) {
+          bonusCaptures[ownerId] =
+              (bonusCaptures[ownerId] ?? 0) + triggered.length;
+        }
+      }
+
       if (log.isNotEmpty) log.write(', ');
       log.write('HONEYPOT@(${pos.x},${pos.y}) exploded');
     }
 
-    return (board, log.toString());
+    return (board, log.toString(), bonusCaptures);
   }
 
   /// Removes honeypot effects whose trap positions were just captured.

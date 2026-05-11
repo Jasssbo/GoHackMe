@@ -32,6 +32,7 @@ dependencies:
 
   # Storage / misc
   shared_preferences: ^2.3.4
+  path_provider: ^2.1.4
   uuid: ^4.5.1
 
   # Shared game logic

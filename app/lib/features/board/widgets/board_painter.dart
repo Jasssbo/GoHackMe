@@ -5,12 +5,8 @@ import 'package:go_engine/go_engine.dart';
 
 import '../../../core/theme/cyberpunk_colors.dart';
 
-// ── Shared 3-D projection helpers ─────────────────────────────────────────
+// ── Shared 3-D projection helpers ──────────────────────────────────────────
 
-/// Computes screen pixels per world unit for the given view parameters.
-///
-/// Board cells are 1 world unit apart.  [elevation] is the angle from
-/// horizontal (radians) and [zoom] is a linear scale multiplier.
 double compute3dScale(
     Size size, int boardSize, double elevation, double zoom) {
   final n = (boardSize - 1).toDouble();
@@ -22,8 +18,6 @@ double compute3dScale(
   return zoom * math.min(sx, sy);
 }
 
-/// Inverse-projects a 2-D screen [tap] onto the board surface plane
-/// (world y = 0) and returns the nearest [Position], or null when outside.
 Position? board3dHitTest(
   Offset tap,
   Size   size,
@@ -38,11 +32,9 @@ Position? board3dHitTest(
   final sinAz = math.sin(azimuth);
   final cx    = (boardSize - 1) / 2.0;
 
-  // Invert the orthographic projection at y = 0.
   final rx = (tap.dx - size.width  / 2) / s;
   final rz = (tap.dy - size.height / 2) / (s * sinEl);
 
-  // Invert azimuth rotation (transpose of the rotation matrix).
   final wx = rx * cosAz + rz * sinAz;
   final wz = -rx * sinAz + rz * cosAz;
 
@@ -56,66 +48,86 @@ Position? board3dHitTest(
   return Position(bx, by);
 }
 
-// ── BoardPainter ────────────────────────────────────────────────────────────
+// ── Signal identity per player (waveform, color, node shape index) ─────────
 
-/// Renders the Go board as a true 3-D slab using an orthographic axonometric
-/// projection that can be freely rotated and zoomed by the parent widget.
-///
-/// The playing surface lies in the world y = 0 plane.  Board column [bx]
-/// maps to world +X and board row [by] maps to world +Z.  The camera sits
-/// above the board, parameterised by [azimuth] (rotation around the world Y
-/// axis) and [elevation] (tilt angle from horizontal).
-///
-/// Star points pulse slowly via [starPulse] (0.0–1.0).
+class _SignalIdentity {
+  final Color  baseColor;
+  final Color  dimColor;
+  final int    nodeShape;   // 0=diamond, 1=hex, 2=cross, 3=square
+  final double glowRadius;
+
+  const _SignalIdentity({
+    required this.baseColor,
+    required this.dimColor,
+    required this.nodeShape,
+    required this.glowRadius,
+  });
+}
+
+const _signalIdentities = {
+  StoneColor.p1: _SignalIdentity(
+    baseColor: CyberpunkColors.signalP1,
+    dimColor:  Color(0xFF0D3A42),
+    nodeShape: 0,
+    glowRadius: 0.40,
+  ),
+  StoneColor.p2: _SignalIdentity(
+    baseColor: CyberpunkColors.signalP2,
+    dimColor:  Color(0xFF1E3040),
+    nodeShape: 1,
+    glowRadius: 0.55,
+  ),
+  StoneColor.p3: _SignalIdentity(
+    baseColor: CyberpunkColors.signalP3,
+    dimColor:  Color(0xFF1A2C10),
+    nodeShape: 2,
+    glowRadius: 0.38,
+  ),
+  StoneColor.p4: _SignalIdentity(
+    baseColor: CyberpunkColors.signalP4,
+    dimColor:  Color(0xFF2A1808),
+    nodeShape: 3,
+    glowRadius: 0.42,
+  ),
+};
+
+// ── BoardPainter ─────────────────────────────────────────────────────────────
+
 class BoardPainter extends CustomPainter {
   final Board     board;
   final int       boardSize;
   final Position? lastPlaced;
   final double    starPulse;
+  final double    packetPhase;
+  final double    flickerAlpha;
 
-  /// Horizontal view rotation in radians.  Default π/4 = classic isometric.
   final double azimuth;
-
-  /// Camera elevation above the horizontal plane in radians.
-  /// Default ≈ arcsin(0.52) ≈ 31° reproduces the original cellH/cellW ratio.
   final double elevation;
-
-  /// Linear zoom multiplier (1.0 = default fit).
   final double zoom;
-
-  static const _stoneColors = {
-    StoneColor.p1: CyberpunkColors.stoneP1,
-    StoneColor.p2: CyberpunkColors.stoneP2,
-    StoneColor.p3: CyberpunkColors.stoneP3,
-    StoneColor.p4: CyberpunkColors.stoneP4,
-  };
 
   BoardPainter({
     required this.board,
     required this.boardSize,
     this.lastPlaced,
-    this.starPulse = 0.5,
+    this.starPulse    = 0.5,
+    this.packetPhase  = 0.0,
+    this.flickerAlpha = 0.0,
     this.azimuth   = math.pi / 4,
-    this.elevation = 0.546, // ≈ arcsin(0.52)
+    this.elevation = 0.546,
     this.zoom      = 1.0,
   });
 
-  // ── Per-paint cached values ──────────────────────────────────────────────
   var _cosAz   = 0.0;
   var _sinAz   = 0.0;
   var _cosEl   = 0.0;
   var _sinEl   = 0.0;
-  var _s       = 0.0; // pixels per world unit
-  var _cx      = 0.0; // screen horizontal centre
-  var _cy      = 0.0; // screen vertical centre
-  var _boardCx = 0.0; // (boardSize-1)/2
+  var _s       = 0.0;
+  var _cx      = 0.0;
+  var _cy      = 0.0;
+  var _boardCx = 0.0;
 
-  // ── Orthographic axonometric projection ─────────────────────────────────
+  final _rng = math.Random(42);
 
-  /// Projects board coordinate ([bx], [by]) at world height [y] to screen.
-  ///
-  ///   screenX = cx  +  (wx·cosAz − wz·sinAz) · s
-  ///   screenY = cy  +  (wx·sinAz + wz·cosAz) · sinEl · s  −  y · cosEl · s
   Offset _proj(double bx, double by, double y) {
     final wx = bx - _boardCx;
     final wz = by - _boardCx;
@@ -127,16 +139,12 @@ class BoardPainter extends CustomPainter {
     );
   }
 
-  // ── Path helper ──────────────────────────────────────────────────────────
-
   Path _quad(Offset a, Offset b, Offset c, Offset d) => Path()
     ..moveTo(a.dx, a.dy)
     ..lineTo(b.dx, b.dy)
     ..lineTo(c.dx, c.dy)
     ..lineTo(d.dx, d.dy)
     ..close();
-
-  // ── Paint entry point ────────────────────────────────────────────────────
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -151,22 +159,32 @@ class BoardPainter extends CustomPainter {
 
     _drawBackground(canvas, size);
     _drawBoardSlab(canvas, size);
+    _drawNodeConnections(canvas);   // same-player adjacency traces
     _drawCoordLabels(canvas);
     _drawStones(canvas);
+    _drawFlicker(canvas, size);
   }
-
-  // ── Background ──────────────────────────────────────────────────────────
 
   void _drawBackground(Canvas canvas, Size size) {
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..color = CyberpunkColors.boardBackground,
+      Paint()..color = const Color(0xFF030506),
+    );
+    final vignette = RadialGradient(
+      center: Alignment.center,
+      radius: 0.85,
+      colors: [
+        Colors.transparent,
+        const Color(0xFF010203).withValues(alpha: 0.6),
+      ],
+    ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..shader = vignette,
     );
   }
 
-  // ── Board slab ──────────────────────────────────────────────────────────
-
-  static const _thickness = 0.40;
+  static const _thickness = 0.30;
 
   void _drawBoardSlab(Canvas canvas, Size size) {
     final n1 = boardSize - 1.0;
@@ -182,12 +200,11 @@ class BoardPainter extends CustomPainter {
     final b11 = _proj(n1, n1, -t);
     final b01 = _proj(0,  n1, -t);
 
-    // Outward-normal rz: positive = face visible (points toward camera).
     final faces = [
-      (pts: [t00, t10, b10, b00], rz: -_cosAz), // North
-      (pts: [t10, t11, b11, b10], rz:  _sinAz), // East
-      (pts: [t11, t01, b01, b11], rz:  _cosAz), // South
-      (pts: [t01, t00, b00, b01], rz: -_sinAz), // West
+      (pts: [t00, t10, b10, b00], rz: -_cosAz),
+      (pts: [t10, t11, b11, b10], rz:  _sinAz),
+      (pts: [t11, t01, b01, b11], rz:  _cosAz),
+      (pts: [t01, t00, b00, b01], rz: -_sinAz),
     ]..sort((a, b) => a.rz.compareTo(b.rz));
 
     for (final f in faces) {
@@ -198,8 +215,10 @@ class BoardPainter extends CustomPainter {
     }
 
     _drawBoardTopSurface(canvas, size, t00, t10, t11, t01);
-    _drawGrid(canvas);
-    _drawStarPoints(canvas);
+    _drawTerritoryZones(canvas);
+    _drawTraces(canvas);
+    _drawPackets(canvas);
+    _drawNetworkNodes(canvas);
 
     for (final f in faces.reversed) {
       if (f.rz > 0) {
@@ -212,15 +231,16 @@ class BoardPainter extends CustomPainter {
   void _drawBoardTopSurface(Canvas canvas, Size size,
       Offset t00, Offset t10, Offset t11, Offset t01) {
     final path = _quad(t00, t10, t11, t01);
-    canvas.drawPath(
-        path, Paint()..color = const Color(0xFF07121C)..style = PaintingStyle.fill);
+    canvas.drawPath(path,
+        Paint()..color = const Color(0xFF05080A)..style = PaintingStyle.fill);
     canvas.save();
     canvas.clipPath(path);
-    final dp   = Paint()..color = CyberpunkColors.cyan.withValues(alpha: 0.022);
-    final step = _s * 1.35;
+    final dp   = Paint()..color = const Color(0xFF0E1A15).withValues(alpha: 0.6);
+    final step = _s * 0.55;
     for (double x = 0; x < size.width; x += step) {
       for (double y = 0; y < size.height; y += step) {
-        canvas.drawCircle(Offset(x, y), 0.7, dp);
+        final stagger = ((x / step).floor() % 2 == 0) ? 0.0 : step * 0.5;
+        canvas.drawCircle(Offset(x, y + stagger), 0.55, dp);
       }
     }
     canvas.restore();
@@ -234,60 +254,276 @@ class BoardPainter extends CustomPainter {
     canvas.drawPath(
       _quad(a, b, c, d),
       Paint()
-        ..color = const Color(0xFF040C13)
-            .withValues(alpha: hidden ? 0.70 : 0.94)
+        ..color = const Color(0xFF030608)
+            .withValues(alpha: hidden ? 0.85 : 0.96)
         ..style = PaintingStyle.fill,
     );
     if (!hidden) {
-      final edgeAlpha = (0.12 + rz.clamp(0.0, 1.0) * 0.38).clamp(0.05, 0.50);
+      final edgeAlpha = (0.06 + rz.clamp(0.0, 1.0) * 0.20).clamp(0.04, 0.28);
       final ep = Paint()
-        ..color = CyberpunkColors.cyanDim.withValues(alpha: edgeAlpha)
-        ..strokeWidth = 0.85
+        ..color = CyberpunkColors.amberDim.withValues(alpha: edgeAlpha * 3)
+        ..strokeWidth = 0.7
         ..style = PaintingStyle.stroke;
       canvas.drawLine(a, d, ep);
       canvas.drawLine(b, c, ep);
       canvas.drawLine(d, c, ep);
+      final tp = Paint()
+        ..color = CyberpunkColors.cyanDim.withValues(alpha: edgeAlpha * 1.5)
+        ..strokeWidth = 0.5
+        ..style = PaintingStyle.stroke;
+      canvas.drawLine(a, b, tp);
     }
   }
 
-  // ── Grid ────────────────────────────────────────────────────────────────
+  void _drawTerritoryZones(Canvas canvas) {
+    if (board.stones.isEmpty) return;
+    final byPlayer = <StoneColor, List<Position>>{};
+    for (final e in board.stones.entries) {
+      byPlayer.putIfAbsent(e.value, () => []).add(e.key);
+    }
+    for (final entry in byPlayer.entries) {
+      final identity = _signalIdentities[entry.key];
+      if (identity == null) continue;
+      final color = identity.baseColor;
+      for (final pos in entry.value) {
+        final c = _proj(pos.x.toDouble(), pos.y.toDouble(), 0.005);
+        // Organic radius: deterministic seed from position so halos are uneven
+        final seed = (pos.x * 13 + pos.y * 7) % 100 / 100.0;
+        final baseR = 0.78 + seed * 0.22;
+        final radius = _s * (baseR + starPulse * 0.14);
+        // Slightly non-uniform aspect ratio per stone for blob feel
+        final aspectSeed = (pos.x * 7 + pos.y * 19) % 100 / 100.0;
+        final wMul = 1.50 + aspectSeed * 0.20;
+        final hMul = 0.84 + aspectSeed * 0.14;
+        canvas.drawOval(
+          Rect.fromCenter(center: c, width: radius * wMul, height: radius * hMul),
+          Paint()
+            ..color = color.withValues(alpha: 0.040 + starPulse * 0.020)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s * 0.48),
+        );
+      }
+    }
+  }
 
-  void _drawGrid(Canvas canvas) {
+  /// Draws organic bezier traces connecting adjacent stones of the same player.
+  /// Called after the board slab is fully rendered but before stone bodies.
+  void _drawNodeConnections(Canvas canvas) {
+    if (board.stones.isEmpty) return;
+
+    // Group stones by player
+    final byColor = <StoneColor, Set<Position>>{};
+    for (final e in board.stones.entries) {
+      byColor.putIfAbsent(e.value, () => {}).add(e.key);
+    }
+
+    // Float at h just below stone tops so connections emerge between bodies
+    const h = 0.18;
+
+    for (final entry in byColor.entries) {
+      final identity = _signalIdentities[entry.key];
+      if (identity == null) continue;
+      final color = identity.baseColor;
+      final posSet = entry.value;
+
+      for (final pos in posSet) {
+        // Only check right (+x) and down (+y) to avoid drawing each edge twice
+        for (final nb in [
+          Position(pos.x + 1, pos.y),
+          Position(pos.x, pos.y + 1),
+        ]) {
+          if (!posSet.contains(nb)) continue;
+
+          final p0 = _proj(pos.x.toDouble(), pos.y.toDouble(), h);
+          final p1 = _proj(nb.x.toDouble(), nb.y.toDouble(), h);
+
+          final dx  = p1.dx - p0.dx;
+          final dy  = p1.dy - p0.dy;
+          final len = math.sqrt(dx * dx + dy * dy);
+          if (len < 0.5) continue;
+
+          // Deterministic bow per edge — seeds from both endpoint positions
+          final bowSeed = ((pos.x * 31 + pos.y * 17 + nb.x * 11) % 100) / 100.0;
+          final bowSign = bowSeed > 0.5 ? 1.0 : -1.0;
+          // Perpendicular unit vector in screen space
+          final pnx = -dy / len;
+          final pny =  dx / len;
+          final bowAmt = _s * (0.04 + bowSeed * 0.05) * bowSign;
+
+          final ctrl = Offset(
+            (p0.dx + p1.dx) / 2 + pnx * bowAmt,
+            (p0.dy + p1.dy) / 2 + pny * bowAmt,
+          );
+
+          final path = Path()
+            ..moveTo(p0.dx, p0.dy)
+            ..quadraticBezierTo(ctrl.dx, ctrl.dy, p1.dx, p1.dy);
+
+          // Soft glow halo
+          canvas.drawPath(
+            path,
+            Paint()
+              ..color = color.withValues(alpha: 0.18 + starPulse * 0.10)
+              ..strokeWidth = _s * 0.22
+              ..style = PaintingStyle.stroke
+              ..strokeCap = StrokeCap.round
+              ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s * 0.14),
+          );
+
+          // Core trace
+          canvas.drawPath(
+            path,
+            Paint()
+              ..color = color.withValues(alpha: 0.65 + starPulse * 0.20)
+              ..strokeWidth = 1.4
+              ..style = PaintingStyle.stroke
+              ..strokeCap = StrokeCap.round,
+          );
+
+          // Bright inner spine
+          canvas.drawPath(
+            path,
+            Paint()
+              ..color = color.withValues(alpha: 0.85 + starPulse * 0.12)
+              ..strokeWidth = 0.5
+              ..style = PaintingStyle.stroke
+              ..strokeCap = StrokeCap.round,
+          );
+        }
+      }
+    }
+  }
+
+  void _drawTraces(Canvas canvas) {
     final n  = boardSize;
     final n1 = n - 1.0;
-    final dim = Paint()
-      ..color = const Color(0xFF1A3A55)
-      ..strokeWidth = 0.55
+    final tracePaint = Paint()
+      ..strokeWidth = 0.7
       ..style = PaintingStyle.stroke;
-    final edge = Paint()
+    final edgePaint = Paint()
       ..color = CyberpunkColors.cyanDim.withValues(alpha: 0.55)
       ..strokeWidth = 1.1
       ..style = PaintingStyle.stroke;
-
     for (int y = 0; y < n; y++) {
-      canvas.drawLine(
-        _proj(0,  y.toDouble(), 0),
-        _proj(n1, y.toDouble(), 0),
-        (y == 0 || y == n - 1) ? edge : dim,
-      );
+      final isEdge = y == 0 || y == n - 1;
+      if (isEdge) {
+        canvas.drawLine(_proj(0, y.toDouble(), 0), _proj(n1, y.toDouble(), 0), edgePaint);
+      } else {
+        final seed = (y * 7 + 3) % 13;
+        final alpha = 0.22 + (seed % 5) * 0.018;
+        final decayAlpha = (y % 5 == 2) ? alpha * 0.5 : alpha;
+        tracePaint.color = CyberpunkColors.cyanDim.withValues(alpha: decayAlpha);
+        _drawImperfectLine(canvas, y.toDouble(), true, tracePaint, n1);
+      }
     }
     for (int x = 0; x < n; x++) {
-      canvas.drawLine(
-        _proj(x.toDouble(), 0,  0),
-        _proj(x.toDouble(), n1, 0),
-        (x == 0 || x == n - 1) ? edge : dim,
-      );
+      final isEdge = x == 0 || x == n - 1;
+      if (isEdge) {
+        canvas.drawLine(_proj(x.toDouble(), 0, 0), _proj(x.toDouble(), n1, 0), edgePaint);
+      } else {
+        final seed = (x * 11 + 7) % 17;
+        final alpha = 0.22 + (seed % 5) * 0.018;
+        final decayAlpha = (x % 7 == 4) ? alpha * 0.45 : alpha;
+        tracePaint.color = CyberpunkColors.cyanDim.withValues(alpha: decayAlpha);
+        _drawImperfectLine(canvas, x.toDouble(), false, tracePaint, n1);
+      }
     }
   }
 
-  // ── Coordinate labels ────────────────────────────────────────────────────
+  void _drawImperfectLine(Canvas canvas, double idx, bool isRow,
+      Paint paint, double n1) {
+    const segs = 4;
+    final step = n1 / segs;
+    for (int s = 0; s < segs; s++) {
+      final t0 = s * step;
+      final t1 = (s + 1) * step;
+      final jitter0 = (_rng.nextDouble() - 0.5) * 0.018;
+      final jitter1 = (_rng.nextDouble() - 0.5) * 0.018;
+      final Offset p0, p1;
+      if (isRow) {
+        p0 = _proj(t0, idx + jitter0, 0);
+        p1 = _proj(t1, idx + jitter1, 0);
+      } else {
+        p0 = _proj(idx + jitter0, t0, 0);
+        p1 = _proj(idx + jitter1, t1, 0);
+      }
+      canvas.drawLine(p0, p1, paint);
+    }
+  }
+
+  void _drawPackets(Canvas canvas) {
+    const packetCount = 6;
+    final n  = boardSize;
+    final n1 = n - 1.0;
+    final packetPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
+    for (int i = 0; i < packetCount; i++) {
+      final isRow   = i % 2 == 0;
+      final lineIdx = ((i * 3 + 2) % (n - 2)) + 1.0;
+      final phase   = (packetPhase + i / packetCount) % 1.0;
+      final t       = phase * n1;
+      final colors  = [
+        CyberpunkColors.signalP1,
+        CyberpunkColors.signalP2,
+        CyberpunkColors.signalP3,
+        CyberpunkColors.signalP4,
+      ];
+      final col = colors[i % colors.length].withValues(alpha: 0.80);
+      packetPaint.color = col;
+      final Offset pos;
+      if (isRow) {
+        pos = _proj(t, lineIdx, 0.01);
+      } else {
+        pos = _proj(lineIdx, t, 0.01);
+      }
+      canvas.drawCircle(pos, 1.8, packetPaint);
+      packetPaint.color = col.withValues(alpha: 0.30);
+      packetPaint.maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);
+      canvas.drawCircle(pos, 4.0, packetPaint);
+      packetPaint.maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
+    }
+  }
+
+  void _drawNetworkNodes(Canvas canvas) {
+    final n = boardSize;
+    final starSet = _starPositions().toSet();
+    final nodePaint = Paint()..style = PaintingStyle.fill;
+    final ringPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.5;
+    for (int x = 0; x < n; x++) {
+      for (int y = 0; y < n; y++) {
+        final pos = Position(x, y);
+        final c = _proj(x.toDouble(), y.toDouble(), 0.008);
+        if (starSet.contains(pos)) {
+          _drawHubNode(canvas, c, nodePaint, ringPaint);
+        } else {
+          nodePaint.color = CyberpunkColors.cyanDim.withValues(alpha: 0.45);
+          canvas.drawCircle(c, 1.1, nodePaint);
+        }
+      }
+    }
+  }
+
+  void _drawHubNode(Canvas canvas, Offset c, Paint fill, Paint ring) {
+    final pulseR = _s * 0.12 * (0.7 + starPulse * 0.3);
+    final r      = _s * 0.060;
+    fill.color = CyberpunkColors.green.withValues(alpha: 0.08 + starPulse * 0.10);
+    fill.maskFilter = MaskFilter.blur(BlurStyle.normal, pulseR * 2.2);
+    canvas.drawCircle(c, pulseR * 2.0, fill);
+    fill.maskFilter = null;
+    ring.color = CyberpunkColors.greenDim.withValues(alpha: 0.45 + starPulse * 0.35);
+    canvas.drawCircle(c, pulseR * 1.1, ring);
+    fill.color = CyberpunkColors.green.withValues(alpha: 0.55 + starPulse * 0.40);
+    canvas.drawCircle(c, r, fill);
+  }
 
   void _drawCoordLabels(Canvas canvas) {
     final n  = boardSize;
     final n1 = n - 1.0;
-    final fs = (_s * 0.30).clamp(5.5, 9.5);
+    final fs = (_s * 0.28).clamp(5.0, 16.0);
     final style = TextStyle(
-      color: CyberpunkColors.cyanDim.withValues(alpha: 0.40),
+      color: CyberpunkColors.textDim.withValues(alpha: 0.55),
       fontSize: fs,
       fontFamily: 'monospace',
     );
@@ -306,37 +542,6 @@ class BoardPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     )..layout())
         .paint(canvas, offset);
-  }
-
-  // ── Star points ──────────────────────────────────────────────────────────
-
-  void _drawStarPoints(Canvas canvas) {
-    for (final pos in _starPositions()) {
-      final c = _proj(pos.x.toDouble(), pos.y.toDouble(), 0);
-
-      canvas.drawCircle(
-        c,
-        _s * 0.30 * (0.35 + starPulse * 0.65),
-        Paint()
-          ..color =
-              CyberpunkColors.green.withValues(alpha: 0.07 + starPulse * 0.10)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
-      );
-
-      final r = _s * (0.09 + starPulse * 0.05);
-      canvas.drawPath(
-        Path()
-          ..moveTo(c.dx, c.dy - r)
-          ..lineTo(c.dx + r * 0.58, c.dy)
-          ..lineTo(c.dx, c.dy + r)
-          ..lineTo(c.dx - r * 0.58, c.dy)
-          ..close(),
-        Paint()
-          ..color =
-              CyberpunkColors.green.withValues(alpha: 0.28 + starPulse * 0.45)
-          ..style = PaintingStyle.fill,
-      );
-    }
   }
 
   List<Position> _starPositions() {
@@ -358,11 +563,8 @@ class BoardPainter extends CustomPainter {
     return const [];
   }
 
-  // ── Stones ───────────────────────────────────────────────────────────────
-
   void _drawStones(Canvas canvas) {
     if (board.stones.isEmpty) return;
-    // Painter's algorithm: sort back-to-front by rz (ascending = back first).
     final sorted = board.stones.entries.toList()
       ..sort((a, b) {
         double rz(Position p) =>
@@ -370,46 +572,57 @@ class BoardPainter extends CustomPainter {
         return rz(a.key).compareTo(rz(b.key));
       });
     for (final e in sorted) {
-      _drawStone(canvas, e.key, e.value, e.key == lastPlaced);
+      _drawNode(canvas, e.key, e.value, e.key == lastPlaced);
     }
   }
 
-  void _drawStone(Canvas canvas, Position pos, StoneColor sc, bool isLast) {
-    final bx    = pos.x.toDouble();
-    final by    = pos.y.toDouble();
-    const r     = 0.42; // diamond radius in board units
-    const h     = 0.18; // stone height in board units
-    final color = _stoneColors[sc]!;
+  void _drawNode(Canvas canvas, Position pos, StoneColor sc, bool isLast) {
+    final identity = _signalIdentities[sc]!;
+    final color    = identity.baseColor;
+    final dimColor = identity.dimColor;
+    final bx = pos.x.toDouble();
+    final by = pos.y.toDouble();
+    const r = 0.38;
+    const h = 0.20;
+    final cTop = _proj(bx, by, h);
+    final cBot = _proj(bx, by, 0);
+
+    // Coverage shadow
+    canvas.drawOval(
+      Rect.fromCenter(center: cBot, width: r * 3.2 * _s, height: r * 1.8 * _s),
+      Paint()
+        ..color = dimColor.withValues(alpha: 0.45)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s * r * 0.6),
+    );
+
+    // Signal glow
+    canvas.drawOval(
+      Rect.fromCenter(
+          center: cTop,
+          width: identity.glowRadius * 2.4 * _s,
+          height: identity.glowRadius * 1.4 * _s),
+      Paint()
+        ..color = color.withValues(alpha: 0.12 + starPulse * 0.10)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, identity.glowRadius * _s * 0.5),
+    );
 
     final nS = _proj(bx,     by - r, 0);
     final eS = _proj(bx + r, by,     0);
     final sS = _proj(bx,     by + r, 0);
     final wS = _proj(bx - r, by,     0);
-
     final nH = _proj(bx,     by - r, h);
     final eH = _proj(bx + r, by,     h);
     final sH = _proj(bx,     by + r, h);
     final wH = _proj(bx - r, by,     h);
 
-    final cH = _proj(bx, by, h);
-
-    // Outer glow.
-    canvas.drawOval(
-      Rect.fromCenter(center: cH, width: r * 3.0 * _s, height: r * 2.0 * _s),
-      Paint()
-        ..color = color.withValues(alpha: 0.18)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * _s * 0.45),
-    );
-
-    // Four side faces — sorted back-to-front by face-centre rz.
     double fRz(double fbx, double fby) =>
         (fbx - _boardCx) * _sinAz + (fby - _boardCx) * _cosAz;
 
     final faceDefs = [
-      (rz: fRz(bx - r / 2, by - r / 2), a: nH, b: wH, c: wS, d: nS, al: 0.24),
-      (rz: fRz(bx + r / 2, by - r / 2), a: eH, b: nH, c: nS, d: eS, al: 0.20),
-      (rz: fRz(bx - r / 2, by + r / 2), a: wH, b: sH, c: sS, d: wS, al: 0.20),
-      (rz: fRz(bx + r / 2, by + r / 2), a: sH, b: eH, c: eS, d: sS, al: 0.30),
+      (rz: fRz(bx - r / 2, by - r / 2), a: nH, b: wH, c: wS, d: nS, al: 0.32),
+      (rz: fRz(bx + r / 2, by - r / 2), a: eH, b: nH, c: nS, d: eS, al: 0.26),
+      (rz: fRz(bx - r / 2, by + r / 2), a: wH, b: sH, c: sS, d: wS, al: 0.26),
+      (rz: fRz(bx + r / 2, by + r / 2), a: sH, b: eH, c: eS, d: sS, al: 0.38),
     ]..sort((a, b) => a.rz.compareTo(b.rz));
 
     for (final f in faceDefs) {
@@ -421,35 +634,124 @@ class BoardPainter extends CustomPainter {
       );
     }
 
-    // Top face diamond.
+    _drawNodeTopFace(canvas, sc, identity, bx, by, h, r, color, cTop, isLast,
+        nH, eH, sH, wH);
+
+    canvas.drawCircle(
+        cTop,
+        _s * 0.10 * (0.8 + starPulse * 0.2),
+        Paint()..color = color.withValues(alpha: 0.80 + starPulse * 0.15));
+  }
+
+  void _drawNodeTopFace(
+    Canvas canvas,
+    StoneColor sc,
+    _SignalIdentity identity,
+    double bx, double by, double h, double r,
+    Color color,
+    Offset cTop,
+    bool isLast,
+    Offset nH, Offset eH, Offset sH, Offset wH,
+  ) {
     final topPath = _quad(nH, eH, sH, wH);
     canvas.drawPath(topPath,
         Paint()..color = CyberpunkColors.boardBackground..style = PaintingStyle.fill);
-    canvas.drawPath(topPath,
-        Paint()..color = color..style = PaintingStyle.stroke..strokeWidth = 0.9);
 
-    canvas.drawCircle(
-        cH, r * _s * 0.18, Paint()..color = color.withValues(alpha: 0.95));
+    switch (identity.nodeShape) {
+      case 0: // Diamond — P1
+        canvas.drawPath(topPath,
+            Paint()
+              ..color = color.withValues(alpha: 0.90)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.0);
+        break;
+      case 1: // Hexagonal — P2
+        final hex = _hexPath(cTop, _s * r * 0.82);
+        canvas.drawPath(hex,
+            Paint()
+              ..color = color.withValues(alpha: 0.85)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 0.9);
+        break;
+      case 2: // Cross terminal — P3
+        _drawCrossTerminal(canvas, cTop, _s * r * 0.75, color);
+        break;
+      case 3: // Square — P4
+        final sq = _squarePath(cTop, _s * r * 0.70);
+        canvas.drawPath(sq,
+            Paint()
+              ..color = color.withValues(alpha: 0.85)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 0.9);
+        break;
+    }
 
     if (isLast) {
       canvas.drawPath(
         topPath,
         Paint()
-          ..color = Colors.white.withValues(alpha: 0.36)
+          ..color = Colors.white.withValues(alpha: 0.20)
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.6,
+          ..strokeWidth = 1.4,
       );
-      canvas.drawCircle(
-          cH, r * _s * 0.11, Paint()..color = Colors.white.withValues(alpha: 0.7));
+      canvas.drawCircle(cTop, _s * r * 0.12,
+          Paint()..color = Colors.white.withValues(alpha: 0.55));
     }
+  }
+
+  Path _hexPath(Offset center, double radius) {
+    final path = Path();
+    for (int i = 0; i < 6; i++) {
+      final angle = math.pi / 6 + i * math.pi / 3;
+      final p = Offset(
+        center.dx + radius * math.cos(angle),
+        center.dy + radius * math.sin(angle),
+      );
+      if (i == 0) {
+        path.moveTo(p.dx, p.dy);
+      } else {
+        path.lineTo(p.dx, p.dy);
+      }
+    }
+    path.close();
+    return path;
+  }
+
+  void _drawCrossTerminal(Canvas canvas, Offset c, double r, Color color) {
+    final paint = Paint()
+      ..color = color.withValues(alpha: 0.90)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(Offset(c.dx - r, c.dy), Offset(c.dx + r, c.dy), paint);
+    canvas.drawLine(Offset(c.dx, c.dy - r * 0.6), Offset(c.dx, c.dy + r * 0.6), paint);
+    paint.color = color.withValues(alpha: 0.55);
+    paint.strokeWidth = 0.6;
+    final t = r * 0.35;
+    canvas.drawLine(Offset(c.dx - r, c.dy - t), Offset(c.dx - r, c.dy + t), paint);
+    canvas.drawLine(Offset(c.dx + r, c.dy - t), Offset(c.dx + r, c.dy + t), paint);
+  }
+
+  Path _squarePath(Offset center, double half) {
+    return Path()
+      ..addRect(Rect.fromCenter(center: center, width: half * 2, height: half * 1.4));
+  }
+
+  void _drawFlicker(Canvas canvas, Size size) {
+    if (flickerAlpha < 0.01) return;
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = Colors.black.withValues(alpha: flickerAlpha * 0.055),
+    );
   }
 
   @override
   bool shouldRepaint(BoardPainter old) =>
-      old.board      != board      ||
-      old.lastPlaced != lastPlaced ||
-      old.starPulse  != starPulse  ||
-      old.azimuth    != azimuth    ||
-      old.elevation  != elevation  ||
-      old.zoom       != zoom;
+      old.board        != board        ||
+      old.lastPlaced   != lastPlaced   ||
+      old.starPulse    != starPulse    ||
+      old.packetPhase  != packetPhase  ||
+      old.flickerAlpha != flickerAlpha ||
+      old.azimuth      != azimuth      ||
+      old.elevation    != elevation    ||
+      old.zoom         != zoom;
 }
