@@ -89,6 +89,11 @@ class _LocalGameScreenState extends ConsumerState<LocalGameScreen> {
                     attackBurst: _attackGlitch,
                     logLines: logLines,
                     lastPlaced: _lastPlaced,
+                    onExit: () {
+                      ref.read(localGameLogProvider.notifier).clear();
+                      Navigator.of(context).pop();
+                    },
+                    onPass: () => notifier.pass(),
                     onPlace: (pos) {
                       // Only accept input when it's the human's placement turn
                       if (gameState.currentPlayerId != notifier.humanId) {

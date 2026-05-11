@@ -94,6 +94,13 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                   attackBurst: _attackGlitch,
                   logLines: logLines,
                   lastPlaced: _lastPlaced,
+                  onExit: () {
+                    ref.read(gameLogProvider.notifier).clear();
+                    Navigator.of(context).pop();
+                  },
+                  onPass: () => ref
+                      .read(gameStateProvider.notifier)
+                      .pass(_localPlayerId, widget.roomId),
                   onPlace: (pos) {
                     setState(() => _lastPlaced = pos);
                     ref.read(gameStateProvider.notifier).placeStone(

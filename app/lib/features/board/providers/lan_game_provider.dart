@@ -271,7 +271,11 @@ class LanGameNotifier extends Notifier<LanGameState> {
     await _transport?.dispose();
     _transport = null;
     _hostService = null;
+    state = const LanGameState(); // clears logLines along with everything else
   }
+
+  /// Disconnect and clear all state (including logs). Call before navigating away.
+  Future<void> leave() => _reset();
 }
 
 final lanGameProvider =

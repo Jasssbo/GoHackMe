@@ -15,6 +15,8 @@ class LocalGameLogNotifier extends Notifier<List<String>> {
     final next = [...state, line];
     state = next.length > _maxLines ? next.sublist(next.length - _maxLines) : next;
   }
+
+  void clear() => state = [];
 }
 
 final localGameLogProvider =

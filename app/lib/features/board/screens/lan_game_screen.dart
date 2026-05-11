@@ -129,6 +129,11 @@ class _LanGameScreenState extends ConsumerState<LanGameScreen> {
           attackBurst: _attackGlitch,
           logLines: ls.logLines,
           lastPlaced: _lastPlaced,
+          onExit: () {
+            ref.read(lanGameProvider.notifier).leave();
+            context.go(Routes.lobby);
+          },
+          onPass: () => ref.read(lanGameProvider.notifier).pass(),
           onPlace: (pos) {
             setState(() => _lastPlaced = pos);
             ref.read(lanGameProvider.notifier).placeStone(pos);

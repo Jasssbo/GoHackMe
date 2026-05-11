@@ -114,6 +114,8 @@ class GameLogNotifier extends Notifier<List<String>> {
         '[${ts.hour.toString().padLeft(2, '0')}:${ts.minute.toString().padLeft(2, '0')}:${ts.second.toString().padLeft(2, '0')}]';
     state = [...state, '$stamp $line'].takeLast(_maxLines).toList();
   }
+
+  void clear() => state = const [];
 }
 
 final gameLogProvider =

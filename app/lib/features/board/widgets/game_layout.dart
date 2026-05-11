@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:go_engine/go_engine.dart';
 
@@ -24,6 +22,12 @@ class GameLayout extends StatefulWidget {
   final void Function(Position) onPlace;
   final void Function(AttackAction) onAttack;
 
+  /// Called when the player taps the PASS button.
+  final VoidCallback? onPass;
+
+  /// Called when the player taps the EXIT button.
+  final VoidCallback? onExit;
+
   /// Increment this to fire a glitch burst on the parent [GlitchOverlay].
   final ValueNotifier<int>? attackBurst;
 
@@ -36,6 +40,8 @@ class GameLayout extends StatefulWidget {
     required this.lastPlaced,
     required this.onPlace,
     required this.onAttack,
+    this.onPass,
+    this.onExit,
     this.attackBurst,
   });
 
@@ -95,7 +101,8 @@ class _GameLayoutState extends State<GameLayout> {
           GameStatusStrip(
             state: widget.state,
             localPlayerId: widget.localPlayerId,
-            statusLabel: widget.statusLabel,
+            onPass: widget.onPass,
+            onExit: widget.onExit,
           ),
 
           // ── Position-pick hint banner ────────────────────────
@@ -214,85 +221,52 @@ class _GameLayoutState extends State<GameLayout> {
 
 // ── GameStatusStrip ───────────────────────────────────────────────────────
 
-class GameStatusStrip extends StatefulWidget {
+class GameStatusStrip extends StatelessWidget {
   final GameState state;
   final String localPlayerId;
-  final String statusLabel;
+  final VoidCallback? onPass;
+  final VoidCallback? onExit;
 
   const GameStatusStrip({
     super.key,
     required this.state,
     required this.localPlayerId,
-    required this.statusLabel,
+    this.onPass,
+    this.onExit,
   });
 
   @override
-  State<GameStatusStrip> createState() => _GameStatusStripState();
-}
-
-class _GameStatusStripState extends State<GameStatusStrip> {
-  late Timer _clockTimer;
-  late String _clock;
-
-  @override
-  void initState() {
-    super.initState();
-    _clock = _formatNow();
-    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _clock = _formatNow());
-    });
-  }
-
-  @override
-  void dispose() {
-    _clockTimer.cancel();
-    super.dispose();
-  }
-
-  static String _formatNow() {
-    final now = DateTime.now();
-    final h = now.hour.toString().padLeft(2, '0');
-    final m = now.minute.toString().padLeft(2, '0');
-    final s = now.second.toString().padLeft(2, '0');
-    return '$h:$m:$s';
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final state = widget.state;
-    final localPlayerId = widget.localPlayerId;
     final isMyTurn = state.currentPlayerId == localPlayerId;
-    final phase = state.phase.name.toUpperCase();
-    final turn = state.turnNumber.toString().padLeft(3, '0');
-    final nodeCount = state.board.stones.length;
+    // The active playing phase is always `attack` (placement + optional attacks).
+    final canPass  = isMyTurn && state.phase == GamePhase.attack;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       color: const Color(0xFF050D15),
       child: Row(
         children: [
+          // PASS — top-left, only when it's your turn
+          if (canPass && onPass != null) ...[
+            _StripButton(
+              label: 'PASS',
+              color: CyberpunkColors.yellow,
+              onTap: onPass!,
+            ),
+            const SizedBox(width: 8),
+          ],
           AsciiChip(
             isMyTurn ? '▶ ${state.currentPlayer.displayName}' : '◌ WAIT',
             color: isMyTurn ? CyberpunkColors.cyan : CyberpunkColors.textDim,
           ),
-          const SizedBox(width: 6),
-          AsciiChip('T:$turn', color: CyberpunkColors.yellow),
-          const SizedBox(width: 6),
-          AsciiChip('N:$nodeCount',
-              color: CyberpunkColors.green.withValues(alpha: 0.8)),
-          const SizedBox(width: 6),
-          AsciiChip('LAYER::$phase',
-              color: CyberpunkColors.green.withValues(alpha: 0.5)),
           const Spacer(),
-          AsciiChip(
-            'SN:${state.subnetsOf(localPlayerId)}',
-            color: CyberpunkColors.yellow,
-          ),
-          const SizedBox(width: 6),
-          AsciiChip(_clock,
-              color: CyberpunkColors.textDim),
-          const SizedBox(width: 6),
-          AsciiChip(widget.statusLabel, color: CyberpunkColors.textDim),
+          // EXIT — top-right, always visible
+          if (onExit != null)
+            _StripButton(
+              label: 'EXIT',
+              color: Colors.white,
+              onTap: onExit!,
+            ),
         ],
       ),
     );
@@ -316,6 +290,44 @@ class AsciiChip extends StatelessWidget {
         fontSize: 10,
         letterSpacing: 1.0,
         fontFamily: 'monospace',
+      ),
+    );
+  }
+}
+
+// ── _StripButton ──────────────────────────────────────────────────────────
+
+/// Small tappable ASCII-styled button used in the status strip.
+class _StripButton extends StatelessWidget {
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _StripButton({
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          border: Border.all(color: color.withValues(alpha: 0.45), width: 1),
+          color: color.withValues(alpha: 0.07),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 9,
+            letterSpacing: 1.2,
+            fontFamily: 'monospace',
+          ),
+        ),
       ),
     );
   }
