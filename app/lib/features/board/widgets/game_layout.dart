@@ -74,7 +74,28 @@ class _GameLayoutState extends State<GameLayout> {
   void _onBoardTap(Position pos) {
     final pending = _pendingPositionAttack;
     if (pending != null) {
-      // Complete the position-based attack.
+      // For WORM, derive the target player from whoever owns the tapped stone.
+      if (pending.type == AttackType.worm) {
+        final stoneColor = widget.state.board.at(pos);
+        if (stoneColor == null) return; // tapped empty cell
+        final attackerColor =
+            widget.state.currentPlayerColor(pending.attackerPlayerId);
+        if (stoneColor == attackerColor) return; // tapped own stone
+        final owner = widget.state.players.firstWhere(
+          (p) => widget.state.currentPlayerColor(p.id) == stoneColor,
+          orElse: () => Player(id: '', displayName: ''),
+        );
+        if (owner.id.isEmpty) return;
+        setState(() => _pendingPositionAttack = null);
+        widget.onAttack(AttackAction(
+          type: pending.type,
+          attackerPlayerId: pending.attackerPlayerId,
+          targetPlayerId: owner.id,
+          targetPosition: pos,
+        ));
+        return;
+      }
+      // For all other position-based attacks (HONEYPOT), use the stored target.
       setState(() => _pendingPositionAttack = null);
       widget.onAttack(AttackAction(
         type: pending.type,
@@ -646,10 +667,6 @@ class _AttackCodexState extends State<AttackCodex> {
 
 // ── AttackCardsPanel ──────────────────────────────────────────────────────
 
-/// Whether this attack type requires the player to tap a board position.
-bool _requiresPosition(AttackType type) =>
-    type == AttackType.worm || type == AttackType.honeypot;
-
 class AttackCardsPanel extends StatelessWidget {
   final int subnets;
   final List<Player> players;
@@ -677,10 +694,44 @@ class AttackCardsPanel extends StatelessWidget {
       return;
     }
 
+    // HONEYPOT: board-targeted, no player selection.
+    // The trap fires against whoever captures it – targetPlayerId is the owner.
+    if (card.type == AttackType.honeypot) {
+      onPickPosition(AttackAction(
+        type: card.type,
+        attackerPlayerId: localPlayerId,
+        targetPlayerId: localPlayerId,
+      ));
+      return;
+    }
+
+    // WORM: board-targeted – target player is derived from the tapped stone
+    // in _onBoardTap, so no player selection dialog is needed here.
+    if (card.type == AttackType.worm) {
+      onPickPosition(AttackAction(
+        type: card.type,
+        attackerPlayerId: localPlayerId,
+        targetPlayerId: localPlayerId, // placeholder; overwritten in _onBoardTap
+      ));
+      return;
+    }
+
     final targets = players.where((p) => p.id != localPlayerId).toList();
     if (targets.isEmpty) return;
 
-    // Resolve target: auto-select when only one opponent, else show dialog.
+    // DDOS: auto-targets the next player in turn order – no dialog needed.
+    if (card.type == AttackType.ddos) {
+      final myIndex = players.indexWhere((p) => p.id == localPlayerId);
+      final target = players[(myIndex + 1) % players.length];
+      onAttack(AttackAction(
+        type: card.type,
+        attackerPlayerId: localPlayerId,
+        targetPlayerId: target.id,
+      ));
+      return;
+    }
+
+    // TROJAN and BACKDOOR: require explicit target selection.
     final Player target;
     if (targets.length == 1) {
       target = targets.first;
@@ -693,18 +744,11 @@ class AttackCardsPanel extends StatelessWidget {
       target = selected;
     }
 
-    final partial = AttackAction(
+    onAttack(AttackAction(
       type: card.type,
       attackerPlayerId: localPlayerId,
       targetPlayerId: target.id,
-    );
-
-    if (_requiresPosition(card.type)) {
-      // Enter board pick-position mode; the board tap will complete the action.
-      onPickPosition(partial);
-    } else {
-      onAttack(partial);
-    }
+    ));
   }
 
   @override

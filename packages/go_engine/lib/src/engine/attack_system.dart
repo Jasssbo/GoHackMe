@@ -23,8 +23,11 @@ class AttackSystem {
       return 'NOT_YOUR_TURN';
     }
 
-    // PATCH is a self-buff; all other attacks must target a different player.
-    if (action.type != AttackType.patch) {
+    // PATCH and HONEYPOT are self-applied; all other attacks must target a
+    // different player. Honeypot places a trap stone owned by the attacker –
+    // any opponent who captures it triggers the effect, so no explicit target
+    // player is needed.
+    if (action.type != AttackType.patch && action.type != AttackType.honeypot) {
       if (action.attackerPlayerId == action.targetPlayerId) {
         return 'CANNOT_ATTACK_SELF';
       }

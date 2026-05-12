@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=GoHackMe
+Comment=A cyberpunk Go board game with hacking mechanics
+Exec=gohackme
+Icon=gohackme
+Type=Application
+Categories=Game;BoardGame;
+StartupWMClass=gohackme
