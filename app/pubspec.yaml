@@ -47,6 +47,14 @@ flutter:
     - assets/fonts/
     - assets/images/
 
+  # Declaring fonts here causes `google_fonts` to serve them from local assets
+  # instead of downloading from Google's CDN (required for privacy compliance
+  # and offline use). License: Apache 2.0 – attribution in app's About screen.
+  fonts:
+    - family: ShareTechMono
+      fonts:
+        - asset: assets/fonts/ShareTechMono-Regular.ttf
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

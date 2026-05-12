@@ -1,0 +1,17 @@
+# Android release signing configuration
+# ─────────────────────────────────────────────────────────────────────────────
+# Copy this file to key.properties (same folder), fill in the real values,
+# and NEVER commit key.properties – it is already in .gitignore.
+#
+# To generate a keystore run:
+#   keytool -genkey -v -keystore upload-keystore.jks \
+#           -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 \
+#           -alias upload
+#
+# Store the resulting .jks file outside the repository, then point storeFile
+# to its absolute path below.
+# ─────────────────────────────────────────────────────────────────────────────
+storePassword=YOUR_STORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=upload
+storeFile=/path/to/upload-keystore.jks

@@ -25,3 +25,28 @@ scripts:
   clean:
     run: melos exec -- flutter clean
     description: Clean all packages.
+
+  # ── Release builds ──────────────────────────────────────────────────────────
+
+  build:apk:
+    run: cd app && flutter build apk --release
+    description: Build a universal release APK (Android).
+
+  build:aab:
+    run: cd app && flutter build appbundle --release
+    description: Build a release Android App Bundle for Google Play.
+
+  build:linux:
+    run: cd app && flutter build linux --release
+    description: Build the Linux desktop release bundle.
+
+  build:appimage:
+    run: ./scripts/build_appimage.sh --skip-build
+    description: Package the already-built Linux bundle into an AppImage (run build:linux first).
+
+  build:linux+appimage:
+    run: |
+      (cd app && flutter build linux --release)
+      ./scripts/build_appimage.sh --skip-build
+    description: Full Linux release → AppImage in one command.
+

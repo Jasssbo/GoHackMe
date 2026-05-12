@@ -2,32 +2,33 @@
 <!--
   Network Security Config for GoHackMe.
 
-  The game server runs on the LAN (ws://) without TLS. Android 9+ (API 28+)
-  blocks cleartext traffic by default. We allow it ONLY for private LAN
-  subnets so the app never downgrades security for public internet hosts.
+  The LAN game server communicates over ws:// (no TLS). Android 9+ (API 28+)
+  blocks cleartext HTTP/WebSocket by default.
 
-  Private RFC-1918 ranges:
-    10.0.0.0/8       (Class A)
-    172.16.0.0/12    (Class B)
-    192.168.0.0/16   (Class C)
+  IMPORTANT — Android's <domain> element matches DNS hostnames only, NOT IP
+  address ranges. Wildcards like "10.*" are not valid and are silently ignored.
+  Since LAN server IPs are user-assigned and dynamic, there is no way to
+  whitelist them by hostname pattern.
 
-  We also allow localhost for development / same-device testing.
+  Decision: allow cleartext for ALL destinations. This is standard practice
+  for LAN-only gaming apps where the user explicitly connects to their own
+  server on a trusted local network. Public internet connections use only
+  WebRTC data channels (DTLS-encrypted end-to-end) or wss:// (TLS).
+
+  See: https://developer.android.com/privacy-and-security/security-config
 -->
 <network-security-config>
-    <!-- Production: allow cleartext only on private LAN subnets -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">localhost</domain>
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <!-- LAN subnets — covers most home / office routers -->
-        <domain includeSubdomains="false">10.*</domain>
-        <domain includeSubdomains="false">172.16.*</domain>
-        <domain includeSubdomains="false">192.168.*</domain>
-    </domain-config>
-
-    <!-- Everything else uses the system default (cleartext blocked on API 28+) -->
-    <base-config cleartextTrafficPermitted="false">
+    <!-- Allow cleartext to any host (ws:// LAN server + localhost dev). -->
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system"/>
         </trust-anchors>
     </base-config>
+
+    <!-- Debug builds additionally trust user-installed CAs (e.g. Charles proxy). -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="user"/>
+        </trust-anchors>
+    </debug-overrides>
 </network-security-config>
