@@ -21,13 +21,14 @@ dependencies:
 
   # Networking
   web_socket_channel: ^3.0.2
+  flutter_webrtc: ^1.0.0
+  http: ^1.4.0
 
   # Serialisation
-  freezed_annotation: ^2.4.4
   json_annotation: ^4.9.0
 
   # UI
-  google_fonts: ^6.2.1
+  google_fonts: ^8.1.0
   flutter_animate: ^4.5.2
 
   # Storage / misc
@@ -53,8 +54,7 @@ dev_dependencies:
   # Code generation
   riverpod_generator: ^2.6.3
   build_runner: ^2.4.13
-  freezed: ^2.5.7
   json_serializable: ^6.8.0
   custom_lint: ^0.7.3
   riverpod_lint: ^2.4.3
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0

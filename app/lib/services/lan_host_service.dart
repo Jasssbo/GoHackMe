@@ -168,6 +168,11 @@ class LanHostService implements IGameTransport {
     final pid = msg.playerId;
     if (pid == null) return;
 
+    // Identity enforcement: after join, ignore any message whose playerId
+    // does not match the player ID bound to this socket connection.
+    // This prevents a connected client from impersonating another player.
+    if (msg.type != MessageType.joinRoom && conn.playerId != pid) return;
+
     switch (msg.type) {
       case MessageType.joinRoom:
         _handleJoin(conn, pid, msg);
@@ -238,7 +243,8 @@ class LanHostService implements IGameTransport {
       }
 
       // ── New player joining a game already in progress ────────────────────
-      final displayName = msg.payload['displayName'] as String? ?? pid;
+      final rawNameMid = msg.payload['displayName'] as String? ?? pid;
+      final displayName = rawNameMid.length > 32 ? rawNameMid.substring(0, 32) : rawNameMid;
       conn.playerId = pid;
       _clients[pid] = conn;
       _pending.add(LanPlayer(id: pid, displayName: displayName));
@@ -300,8 +306,8 @@ class LanHostService implements IGameTransport {
       return;
     }
 
-    final displayName =
-        msg.payload['displayName'] as String? ?? pid;
+    final rawName = msg.payload['displayName'] as String? ?? pid;
+    final displayName = rawName.length > 32 ? rawName.substring(0, 32) : rawName;
     conn.playerId = pid;
     _clients[pid] = conn;
     _pending.add(LanPlayer(id: pid, displayName: displayName));

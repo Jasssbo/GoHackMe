@@ -6,6 +6,7 @@ import '../../features/board/screens/game_screen.dart';
 import '../../features/board/screens/lan_game_screen.dart';
 import '../../features/board/screens/lan_join_screen.dart';
 import '../../features/board/screens/local_game_screen.dart';
+import '../../features/board/screens/wired_game_screen.dart';
 import '../../features/lobby/screens/lobby_screen.dart';
 import '../../services/lan_discovery_service.dart';
 
@@ -18,6 +19,8 @@ abstract class Routes {
   static const lanHost = '/lan/host';
   static const lanJoin = '/lan/join';
   static const lanGame = '/lan/game';
+  static const wiredHost = '/wired/host';
+  static const wiredJoin = '/wired/join';
 
   static String gamePath(String roomId) => '/game/$roomId';
 }
@@ -88,6 +91,23 @@ final appRouter = GoRouter(
         final room = extras?['room'] as LanRoom?;
         return LanGameScreen(room: room);
       },
+    ),
+    GoRoute(
+      path: Routes.wiredHost,
+      name: 'wiredHost',
+      builder: (context, state) {
+        final extras = state.extra as Map<String, dynamic>?;
+        return WiredGameScreen(
+          isHost: true,
+          boardSize: (extras?['boardSize'] as int?) ?? 19,
+          maxPlayers: (extras?['maxPlayers'] as int?) ?? 2,
+        );
+      },
+    ),
+    GoRoute(
+      path: Routes.wiredJoin,
+      name: 'wiredJoin',
+      builder: (context, state) => const WiredGameScreen(isHost: false),
     ),
   ],
 );

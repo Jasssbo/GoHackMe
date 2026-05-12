@@ -20,8 +20,7 @@ class LobbyScreen extends ConsumerStatefulWidget {
   ConsumerState<LobbyScreen> createState() => _LobbyScreenState();
 }
 
-class _LobbyScreenState extends ConsumerState<LobbyScreen>
-    with TickerProviderStateMixin {
+class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   // ── Boot sequence ─────────────────────────────────────────────────────────
   static const _bootLines = [
     'NAVI :: SYSTEM BOOT v7.1',
@@ -33,13 +32,13 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
   int _bootStep = 0;
   bool _booted = false;
 
-  // ── Cursor blink (locked Wired section) ───────────────────────────────────
-  bool _cursorVisible = true;
-  late final AnimationController _cursorCtrl;
-
   // ── LAN host options ──────────────────────────────────────────────────────
   int _boardSize = 19;
   int _maxPlayers = 2;
+
+  // ── Wired options ─────────────────────────────────────────────────────────
+  int _wiredBoardSize = 19;
+  int _wiredMaxPlayers = 2;
 
   // ── Solo options ──────────────────────────────────────────────────────────
   int _soloBoardSize = 9;
@@ -48,20 +47,6 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
   @override
   void initState() {
     super.initState();
-    _cursorCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 530),
-    )..addStatusListener((s) {
-        if (!mounted) return;
-        if (s == AnimationStatus.completed) {
-          setState(() => _cursorVisible = false);
-          _cursorCtrl.reverse();
-        } else if (s == AnimationStatus.dismissed) {
-          setState(() => _cursorVisible = true);
-          _cursorCtrl.forward();
-        }
-      })
-      ..forward();
     _runBoot();
   }
 
@@ -81,7 +66,6 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
 
   @override
   void dispose() {
-    _cursorCtrl.dispose();
     super.dispose();
   }
 
@@ -103,6 +87,13 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
               : 'intermediate',
         },
       );
+
+  void _hostWired() => context.push(
+        Routes.wiredHost,
+        extra: {'boardSize': _wiredBoardSize, 'maxPlayers': _wiredMaxPlayers},
+      );
+
+  void _joinWired() => context.push(Routes.wiredJoin);
 
   // ── Segmented button style ────────────────────────────────────────────────
 
@@ -363,8 +354,16 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
 
               const SizedBox(height: 20),
 
-              // ── THE WIRED (locked) ────────────────────────────────────
-              _WiredLockedPanel(cursorVisible: _cursorVisible),
+              // ── THE WIRED (internet P2P) ─────────────────────────────────────────
+              _WiredPanel(
+                boardSize: _wiredBoardSize,
+                maxPlayers: _wiredMaxPlayers,
+                segStyle: _segStyle,
+                onBoardSize: (v) => setState(() => _wiredBoardSize = v),
+                onMaxPlayers: (v) => setState(() => _wiredMaxPlayers = v),
+                onHost: _hostWired,
+                onJoin: _joinWired,
+              ),
 
               const SizedBox(height: 40),
             ],
@@ -433,26 +432,41 @@ class _LainPanel extends StatelessWidget {
   }
 }
 
-// ── _WiredLockedPanel ─────────────────────────────────────────────────────
+// ── _WiredPanel ───────────────────────────────────────────────────────────
 
-class _WiredLockedPanel extends StatelessWidget {
-  final bool cursorVisible;
-  const _WiredLockedPanel({required this.cursorVisible});
+class _WiredPanel extends StatelessWidget {
+  final int boardSize;
+  final int maxPlayers;
+  final ButtonStyle Function(Color) segStyle;
+  final ValueChanged<int> onBoardSize;
+  final ValueChanged<int> onMaxPlayers;
+  final VoidCallback onHost;
+  final VoidCallback onJoin;
+
+  const _WiredPanel({
+    required this.boardSize,
+    required this.maxPlayers,
+    required this.segStyle,
+    required this.onBoardSize,
+    required this.onMaxPlayers,
+    required this.onHost,
+    required this.onJoin,
+  });
 
   @override
   Widget build(BuildContext context) {
-    const indigo = Color(0xFF6A3A9F);
-    const indigoDim = Color(0xFF2A0F48);
-    const indigoBg = Color(0xFF0D0514);
+    const indigo = Color(0xFF8B5CF6);
+    const indigoDim = Color(0xFF4C1D95);
+    const indigoBg = Color(0xFF0A0614);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
       decoration: BoxDecoration(
         border: Border(
-          left: BorderSide(color: indigo.withValues(alpha: 0.35), width: 2),
-          bottom: BorderSide(color: indigoDim.withValues(alpha: 0.5), width: 1),
+          left: BorderSide(color: indigo.withValues(alpha: 0.55), width: 2),
+          bottom: BorderSide(color: indigoDim.withValues(alpha: 0.20), width: 1),
         ),
-        color: indigoBg.withValues(alpha: 0.6),
+        color: indigoBg.withValues(alpha: 0.7),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -462,7 +476,7 @@ class _WiredLockedPanel extends StatelessWidget {
               Text(
                 '// THE_WIRED',
                 style: TextStyle(
-                  color: indigo.withValues(alpha: 0.70),
+                  color: indigo.withValues(alpha: 0.95),
                   fontSize: 10,
                   letterSpacing: 2.5,
                   fontFamily: 'monospace',
@@ -471,14 +485,16 @@ class _WiredLockedPanel extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
-                  border: Border.all(color: indigoDim.withValues(alpha: 0.8)),
+                  border:
+                      Border.all(color: indigo.withValues(alpha: 0.45)),
                 ),
                 child: Text(
-                  'UPLINK ABSENT',
+                  'UPLINK ACTIVE',
                   style: TextStyle(
-                    color: indigo.withValues(alpha: 0.45),
+                    color: indigo.withValues(alpha: 0.80),
                     fontSize: 7.5,
                     letterSpacing: 1.5,
                     fontFamily: 'monospace',
@@ -487,11 +503,12 @@ class _WiredLockedPanel extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(
-            'Global network. Entities from all layers. No distance.',
+            'Global network. P2P via WebRTC — no server required.\n'
+            'Open a LAYER and share the handshake code with your opponent.',
             style: TextStyle(
-              color: indigo.withValues(alpha: 0.22),
+              color: CyberpunkColors.textSecondary.withValues(alpha: 0.85),
               fontSize: 9,
               fontFamily: 'monospace',
               height: 1.8,
@@ -499,14 +516,60 @@ class _WiredLockedPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          Text(
-            '> PROTOCOL_7  ·  SIGNAL_ABSENT  ${cursorVisible ? '▌' : ' '}',
-            style: TextStyle(
-              color: indigo.withValues(alpha: 0.30),
-              fontSize: 9.5,
-              fontFamily: 'monospace',
-              letterSpacing: 1.2,
-            ),
+          _SectionLabel('NETWORK_SCALE', color: indigo),
+          const SizedBox(height: 6),
+          SegmentedButton<int>(
+            segments: const [
+              ButtonSegment(value: 9, label: Text('9×9')),
+              ButtonSegment(value: 13, label: Text('13×13')),
+              ButtonSegment(value: 19, label: Text('19×19')),
+            ],
+            selected: {boardSize},
+            onSelectionChanged: (s) => onBoardSize(s.first),
+            style: segStyle(indigo),
+          ),
+          const SizedBox(height: 14),
+          _SectionLabel('ENTITIES', color: indigo),
+          const SizedBox(height: 6),
+          SegmentedButton<int>(
+            segments: const [
+              ButtonSegment(value: 2, label: Text('2')),
+              ButtonSegment(value: 3, label: Text('3')),
+              ButtonSegment(value: 4, label: Text('4')),
+            ],
+            selected: {maxPlayers},
+            onSelectionChanged: (s) => onMaxPlayers(s.first),
+            style: segStyle(indigo),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: onHost,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: indigo.withValues(alpha: 0.12),
+                    foregroundColor: indigo,
+                    side: BorderSide(color: indigo),
+                  ),
+                  child: const Text('OPEN_LAYER'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: onJoin,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor:
+                        indigoDim.withValues(alpha: 0.20),
+                    foregroundColor: indigo,
+                    side: BorderSide(
+                        color: indigo.withValues(alpha: 0.55)),
+                  ),
+                  child: const Text('JACK_IN'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
