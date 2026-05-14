@@ -71,6 +71,8 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
 
   // ── Navigation ────────────────────────────────────────────────────────────
 
+  void _openNavi() => context.push(Routes.navi);
+
   void _hostLan() => context.push(
         Routes.lanHost,
         extra: {'boardSize': _boardSize, 'maxPlayers': _maxPlayers},
@@ -212,7 +214,12 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                 ],
               ),
 
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
+
+              // ── NAVI button ───────────────────────────────────────────
+              _NaviButton(onTap: _openNavi),
+
+              const SizedBox(height: 28),
 
               // ── LOCAL WIRED ───────────────────────────────────────────
               _LainPanel(
@@ -573,6 +580,113 @@ class _WiredPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── _NaviButton ───────────────────────────────────────────────────────────
+
+class _NaviButton extends StatefulWidget {
+  final VoidCallback onTap;
+  const _NaviButton({required this.onTap});
+
+  @override
+  State<_NaviButton> createState() => _NaviButtonState();
+}
+
+class _NaviButtonState extends State<_NaviButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+  bool _hovered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const amber = CyberpunkColors.amber;
+    return AnimatedBuilder(
+      animation: _pulse,
+      builder: (_, __) {
+        final glow = _hovered ? 0.30 : 0.08 + _pulse.value * 0.08;
+        return MouseRegion(
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: amber.withValues(alpha: glow),
+                border: Border.all(
+                  color: amber.withValues(alpha: _hovered ? 0.65 : 0.35),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    '◈',
+                    style: TextStyle(
+                      color: amber.withValues(alpha: 0.80),
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'TALK WITH YOUR NAVI',
+                          style: TextStyle(
+                            color: amber.withValues(alpha: 0.90),
+                            fontSize: 10,
+                            letterSpacing: 2.5,
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'ask questions · learn the rules · understand the Wired',
+                          style: TextStyle(
+                            color: amber.withValues(alpha: 0.45),
+                            fontSize: 8.5,
+                            letterSpacing: 0.8,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    '[>_]',
+                    style: TextStyle(
+                      color: amber.withValues(alpha: _hovered ? 0.75 : 0.35),
+                      fontSize: 10,
+                      letterSpacing: 1,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

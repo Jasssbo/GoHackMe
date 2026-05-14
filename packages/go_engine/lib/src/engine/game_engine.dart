@@ -545,7 +545,7 @@ class GameEngine {
     Set<Position> capturedPositions,
   ) {
     return effects.where((e) {
-      if (e.type != AttackType.honeypot) return true;
+      if (e.type != AttackType.knightseye) return true;
       if (e.anchorPosition == null) return true;
       // Keep the effect only if the trap was NOT just captured.
       return !capturedPositions.contains(e.anchorPosition);

@@ -8,6 +8,7 @@ import '../../features/board/screens/lan_join_screen.dart';
 import '../../features/board/screens/local_game_screen.dart';
 import '../../features/board/screens/wired_game_screen.dart';
 import '../../features/lobby/screens/lobby_screen.dart';
+import '../../features/lobby/screens/navi_terminal_screen.dart';
 import '../../services/lan_discovery_service.dart';
 
 /// Named route constants.
@@ -21,6 +22,7 @@ abstract class Routes {
   static const lanGame = '/lan/game';
   static const wiredHost = '/wired/host';
   static const wiredJoin = '/wired/join';
+  static const navi = '/navi';
 
   static String gamePath(String roomId) => '/game/$roomId';
 }
@@ -108,6 +110,11 @@ final appRouter = GoRouter(
       path: Routes.wiredJoin,
       name: 'wiredJoin',
       builder: (context, state) => const WiredGameScreen(isHost: false),
+    ),
+    GoRoute(
+      path: Routes.navi,
+      name: 'navi',
+      builder: (context, state) => const NaviTerminalScreen(),
     ),
   ],
 );

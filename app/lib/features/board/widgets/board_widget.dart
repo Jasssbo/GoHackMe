@@ -22,12 +22,17 @@ class BoardWidget extends StatefulWidget {
   final Position? lastPlaced;
   final void Function(Position pos)? onTap;
 
+  /// The stone color of the player whose turn it currently is.
+  /// When non-null, that player's stones will blink gently.
+  final StoneColor? activePlayerColor;
+
   const BoardWidget({
     super.key,
     required this.board,
     required this.boardSize,
     this.lastPlaced,
     this.onTap,
+    this.activePlayerColor,
   });
 
   @override
@@ -40,6 +45,7 @@ class _BoardWidgetState extends State<BoardWidget>
   late final AnimationController _pulseCtrl;
   late final AnimationController _packetCtrl;  // data packet travel
   late final AnimationController _flickerCtrl; // CRT flicker
+  late final AnimationController _turnCtrl;    // active-player turn blink
   double _flickerAlpha = 0.0;
 
   // ── View state ────────────────────────────────────────────────────────────
@@ -86,6 +92,12 @@ class _BoardWidgetState extends State<BoardWidget>
       duration: const Duration(milliseconds: 80),
     );
     _scheduleFlicker();
+
+    // Gentle turn-indicator blink (slow, not jarring)
+    _turnCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
   }
 
   void _scheduleFlicker() {
@@ -108,6 +120,7 @@ class _BoardWidgetState extends State<BoardWidget>
     _pulseCtrl.dispose();
     _packetCtrl.dispose();
     _flickerCtrl.dispose();
+    _turnCtrl.dispose();
     super.dispose();
   }
 
@@ -182,20 +195,22 @@ class _BoardWidgetState extends State<BoardWidget>
           onScaleUpdate: _onScaleUpdate,
           onScaleEnd:    _onScaleEnd,
           child: AnimatedBuilder(
-            animation: Listenable.merge([_pulseCtrl, _packetCtrl, _flickerCtrl]),
+            animation: Listenable.merge([_pulseCtrl, _packetCtrl, _flickerCtrl, _turnCtrl]),
             builder: (_, __) => RepaintBoundary(
               child: CustomPaint(
                 size: _canvasSize,
                 painter: BoardPainter(
-                  board:        widget.board,
-                  boardSize:    widget.boardSize,
-                  lastPlaced:   widget.lastPlaced,
-                  starPulse:    _pulseCtrl.value,
-                  packetPhase:  _packetCtrl.value,
-                  flickerAlpha: _flickerAlpha,
-                  azimuth:      _azimuth,
-                  elevation:    _elevation,
-                  zoom:         _zoom,
+                  board:             widget.board,
+                  boardSize:         widget.boardSize,
+                  lastPlaced:        widget.lastPlaced,
+                  starPulse:         _pulseCtrl.value,
+                  packetPhase:       _packetCtrl.value,
+                  flickerAlpha:      _flickerAlpha,
+                  azimuth:           _azimuth,
+                  elevation:         _elevation,
+                  zoom:              _zoom,
+                  activePlayerColor: widget.activePlayerColor,
+                  activePulse:       _turnCtrl.value,
                 ),
               ),
             ),

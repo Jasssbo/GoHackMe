@@ -23,11 +23,11 @@ class AttackSystem {
       return 'NOT_YOUR_TURN';
     }
 
-    // PATCH and HONEYPOT are self-applied; all other attacks must target a
-    // different player. Honeypot places a trap stone owned by the attacker –
-    // any opponent who captures it triggers the effect, so no explicit target
-    // player is needed.
-    if (action.type != AttackType.patch && action.type != AttackType.honeypot) {
+    // PATCH, KNIGHTS_EYE, and TIMEBOMB are self-applied/broadcast; all other
+    // attacks must target a different player.
+    if (action.type != AttackType.patch &&
+        action.type != AttackType.knightseye &&
+        action.type != AttackType.psyche) {
       if (action.attackerPlayerId == action.targetPlayerId) {
         return 'CANNOT_ATTACK_SELF';
       }
@@ -55,7 +55,7 @@ class AttackSystem {
             state.currentPlayerColor(action.targetPlayerId);
         if (stoneAt != targetColor) return 'NO_ENEMY_STONE_AT_POSITION';
 
-      case AttackType.honeypot:
+      case AttackType.knightseye:
         if (action.targetPosition == null) return 'POSITION_REQUIRED';
         if (!state.board.isInBounds(action.targetPosition!)) {
           return 'POSITION_OUT_OF_BOUNDS';
@@ -145,17 +145,28 @@ class AttackSystem {
         newPatchShields[action.attackerPlayerId] =
             (newPatchShields[action.attackerPlayerId] ?? 0) + 1;
 
-      case AttackType.honeypot:
+      case AttackType.knightseye:
         // Place attacker's stone; track it as a honeypot via an active effect.
         final attackerColor =
             state.currentPlayerColor(action.attackerPlayerId);
         newBoard = newBoard.place(action.targetPosition!, attackerColor);
         newEffects.add(ActiveEffect(
-          type: AttackType.honeypot,
+          type: AttackType.knightseye,
           targetPlayerId: action.attackerPlayerId, // owner of the trap
           turnsRemaining: 999, // persists until the trap fires or stone is gone
           anchorPosition: action.targetPosition,
         ));
+
+      case AttackType.psyche:
+        // Create one timed effect per opponent (3 turns each).
+        for (final player in state.players) {
+          if (player.id == action.attackerPlayerId) continue;
+          newEffects.add(ActiveEffect(
+            type: AttackType.psyche,
+            targetPlayerId: player.id,
+            turnsRemaining: 3,
+          ));
+        }
     }
 
     return state.copyWith(
@@ -183,7 +194,7 @@ class AttackSystem {
         continue;
       }
       // backdoor and honeypot are event-driven, not turn-ticked.
-      if (effect.type == AttackType.honeypot) {
+      if (effect.type == AttackType.knightseye) {
         stillActive.add(effect);
         continue;
       }
@@ -218,7 +229,7 @@ class AttackSystem {
   static bool isHoneypot(GameState state, Position pos, String ownerId) =>
       state.activeEffects.any(
         (e) =>
-            e.type == AttackType.honeypot &&
+            e.type == AttackType.knightseye &&
             e.targetPlayerId == ownerId &&
             e.anchorPosition == pos,
       );
@@ -229,7 +240,7 @@ class AttackSystem {
       GameState state, Position pos, String ownerId) {
     final remaining = state.activeEffects
         .where(
-          (e) => !(e.type == AttackType.honeypot &&
+          (e) => !(e.type == AttackType.knightseye &&
               e.targetPlayerId == ownerId &&
               e.anchorPosition == pos),
         )

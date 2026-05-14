@@ -20,9 +20,13 @@ enum AttackType {
   /// WORM.sh – overwrite one enemy-occupied intersection with your stone.
   worm,
 
-  /// HONEYPOT.sh – plant a trap stone; if it is captured it reclaims itself
+  /// KNIGHTS_EYE.sh – plant a trap stone; if it is captured it reclaims itself
   /// and all adjacent empty intersections for the owner.
-  honeypot,
+  knightseye,
+
+  /// PSYCHE.sh – for the next 3 of each opponent's turns they must act
+  /// within 5 seconds or their turn is auto-skipped.
+  psyche,
 }
 
 /// Static metadata for each [AttackType].
@@ -43,39 +47,45 @@ class AttackCard {
     // Sorted ascending by subnetCost.
     AttackCard(
       type: AttackType.ddos,
-      subnetCost: 3,
+      subnetCost: 6,
       terminalName: 'DDOS.sh',
       description: 'Flood target node. Target skips next placement.',
     ),
     AttackCard(
       type: AttackType.patch,
-      subnetCost: 3,
+      subnetCost: 6,
       terminalName: 'PATCH.sh',
       description: 'Apply security patch. Block next incoming attack. Stacks.',
     ),
     AttackCard(
       type: AttackType.worm,
-      subnetCost: 4,
+      subnetCost: 8,
       terminalName: 'WORM.sh',
       description: 'Inject worm. Overwrite one enemy stone with yours.',
     ),
     AttackCard(
       type: AttackType.trojan,
-      subnetCost: 5,
+      subnetCost: 10,
       terminalName: 'TROJAN.sh',
       description: 'Deploy trojan. Steal half their subnets – you gain, they lose.',
     ),
     AttackCard(
-      type: AttackType.honeypot,
-      subnetCost: 5,
-      terminalName: 'HONEYPOT.sh',
+      type: AttackType.knightseye,
+      subnetCost: 10,
+      terminalName: 'KNIGHTS_EYE.sh',
       description: 'Deploy trap. If captured, reclaims node and overwrites all 4 adjacent nodes.',
     ),
     AttackCard(
       type: AttackType.backdoor,
-      subnetCost: 6,
+      subnetCost: 12,
       terminalName: 'BACKDOOR.sh',
       description: 'Hijack next turn. You place the enemy stone; they skip attacks.',
+    ),
+    AttackCard(
+      type: AttackType.psyche,
+      subnetCost: 20,
+      terminalName: 'PSYCHE.sh',
+      description: 'Initiate countdown. All enemies must act within 5s for 3 turns or be auto-skipped.',
     ),
   ];
 

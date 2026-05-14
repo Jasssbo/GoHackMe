@@ -101,6 +101,13 @@ class BoardPainter extends CustomPainter {
   final double    packetPhase;
   final double    flickerAlpha;
 
+  /// Stone color of the player whose turn it is.
+  /// When non-null, that player's stones receive a subtle blink ring.
+  final StoneColor? activePlayerColor;
+
+  /// Value from the turn-blink AnimationController [0..1], reversed.
+  final double activePulse;
+
   final double azimuth;
   final double elevation;
   final double zoom;
@@ -112,6 +119,8 @@ class BoardPainter extends CustomPainter {
     this.starPulse    = 0.5,
     this.packetPhase  = 0.0,
     this.flickerAlpha = 0.0,
+    this.activePlayerColor,
+    this.activePulse  = 0.5,
     this.azimuth   = math.pi / 4,
     this.elevation = 0.546,
     this.zoom      = 1.0,
@@ -217,7 +226,6 @@ class BoardPainter extends CustomPainter {
     _drawBoardTopSurface(canvas, size, t00, t10, t11, t01);
     _drawTerritoryZones(canvas);
     _drawTraces(canvas);
-    _drawPackets(canvas);
     _drawNetworkNodes(canvas);
 
     for (final f in faces.reversed) {
@@ -580,6 +588,7 @@ class BoardPainter extends CustomPainter {
     final identity = _signalIdentities[sc]!;
     final color    = identity.baseColor;
     final dimColor = identity.dimColor;
+    final isActive = sc == activePlayerColor;
     final bx = pos.x.toDouble();
     final by = pos.y.toDouble();
     const r = 0.38;
@@ -595,16 +604,34 @@ class BoardPainter extends CustomPainter {
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s * r * 0.6),
     );
 
-    // Signal glow
+    // Signal glow — slightly stronger on the active player's stones
+    final glowBoost = isActive ? 0.08 + activePulse * 0.12 : 0.0;
     canvas.drawOval(
       Rect.fromCenter(
           center: cTop,
           width: identity.glowRadius * 2.4 * _s,
           height: identity.glowRadius * 1.4 * _s),
       Paint()
-        ..color = color.withValues(alpha: 0.12 + starPulse * 0.10)
+        ..color = color.withValues(alpha: 0.12 + starPulse * 0.10 + glowBoost)
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, identity.glowRadius * _s * 0.5),
     );
+
+    // Active-player outer blink ring
+    if (isActive) {
+      final ringAlpha = 0.20 + activePulse * 0.45;
+      final ringRadius = _s * (r * 1.55 + activePulse * r * 0.18);
+      canvas.drawOval(
+        Rect.fromCenter(
+            center: cTop,
+            width: ringRadius * 2.0,
+            height: ringRadius * 1.15),
+        Paint()
+          ..color = color.withValues(alpha: ringAlpha)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s * 0.06),
+      );
+    }
 
     final nS = _proj(bx,     by - r, 0);
     final eS = _proj(bx + r, by,     0);

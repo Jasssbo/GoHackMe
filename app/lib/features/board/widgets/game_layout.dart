@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_engine/go_engine.dart';
 
@@ -55,6 +57,51 @@ class _GameLayoutState extends State<GameLayout> {
   /// (worm/honeypot) and needs to tap the board to complete it.
   AttackAction? _pendingPositionAttack;
 
+  // ── Timebomb countdown ────────────────────────────────────────────────────
+  Timer? _timebombTimer;
+  int _timebombSecondsLeft = 5;
+
+  bool get _isUnderTimebomb =>
+      widget.state.currentPlayerId == widget.localPlayerId &&
+      widget.state.hasEffect(widget.localPlayerId, AttackType.psyche);
+
+  void _startTimebombIfNeeded() {
+    if (!_isUnderTimebomb) return;
+    if (_timebombTimer != null && _timebombTimer!.isActive) return;
+    _timebombSecondsLeft = 5;
+    _timebombTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      setState(() => _timebombSecondsLeft--);
+      if (_timebombSecondsLeft <= 0) {
+        t.cancel();
+        _timebombTimer = null;
+        // Cancel any pending position-pick and auto-pass.
+        _pendingPositionAttack = null;
+        widget.onPass?.call();
+      }
+    });
+  }
+
+  void _cancelTimebomb() {
+    _timebombTimer?.cancel();
+    _timebombTimer = null;
+  }
+
+  @override
+  void dispose() {
+    _cancelTimebomb();
+    super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimebombIfNeeded();
+  }
+
   @override
   void didUpdateWidget(GameLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -64,6 +111,18 @@ class _GameLayoutState extends State<GameLayout> {
       if (!isMyTurn || widget.state.phase != GamePhase.attack) {
         setState(() => _pendingPositionAttack = null);
       }
+    }
+    // Manage timebomb countdown.
+    if (_isUnderTimebomb) {
+      // If the turn just changed to the local player, reset the countdown.
+      if (oldWidget.state.currentPlayerId != widget.state.currentPlayerId) {
+        _cancelTimebomb();
+        _startTimebombIfNeeded();
+      } else {
+        _startTimebombIfNeeded(); // idempotent if already running
+      }
+    } else {
+      _cancelTimebomb();
     }
   }
 
@@ -193,6 +252,44 @@ class _GameLayoutState extends State<GameLayout> {
               ),
             ),
 
+          // ── Timebomb countdown banner ─────────────────────────
+          if (_isUnderTimebomb)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: CyberpunkColors.error.withValues(alpha: 0.10),
+                border: Border(
+                  bottom: BorderSide(
+                    color: CyberpunkColors.error.withValues(alpha: 0.55),
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    '>> PSYCHE  ·  ACT_OR_SKIP',
+                    style: TextStyle(
+                      color: CyberpunkColors.error.withValues(alpha: 0.95),
+                      fontSize: 9,
+                      letterSpacing: 1.2,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '[$_timebombSecondsLeft]',
+                    style: const TextStyle(
+                      color: CyberpunkColors.error,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           // ── Board (top, ~60% of remaining space) ─────────────
           Expanded(
             flex: 3,
@@ -205,6 +302,8 @@ class _GameLayoutState extends State<GameLayout> {
                     board: widget.state.board,
                     boardSize: widget.state.board.size,
                     lastPlaced: widget.lastPlaced,
+                    activePlayerColor: widget.state.currentPlayerColor(
+                        widget.state.currentPlayerId),
                     onTap: isMyTurn &&
                             (widget.state.phase == GamePhase.attack ||
                                 widget.state.phase ==
@@ -696,7 +795,7 @@ class AttackCardsPanel extends StatelessWidget {
 
     // HONEYPOT: board-targeted, no player selection.
     // The trap fires against whoever captures it – targetPlayerId is the owner.
-    if (card.type == AttackType.honeypot) {
+    if (card.type == AttackType.knightseye) {
       onPickPosition(AttackAction(
         type: card.type,
         attackerPlayerId: localPlayerId,
@@ -731,6 +830,16 @@ class AttackCardsPanel extends StatelessWidget {
       return;
     }
 
+    // TIMEBOMB: broadcast – targets all opponents simultaneously, no dialog.
+    if (card.type == AttackType.psyche) {
+      onAttack(AttackAction(
+        type: card.type,
+        attackerPlayerId: localPlayerId,
+        targetPlayerId: localPlayerId, // engine uses attackerPlayerId to exclude self
+      ));
+      return;
+    }
+
     // TROJAN and BACKDOOR: require explicit target selection.
     final Player target;
     if (targets.length == 1) {
@@ -761,8 +870,9 @@ class AttackCardsPanel extends StatelessWidget {
         children: [
           ...AttackCard.all.map((card) {
             final enabled = subnets >= card.subnetCost;
-            final color =
-                enabled ? CyberpunkColors.magenta : CyberpunkColors.textDim;
+            final color = enabled
+                ? CyberpunkColors.green
+                : const Color(0xFF6B2030); // desaturated red when locked
             return Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: InkWell(
