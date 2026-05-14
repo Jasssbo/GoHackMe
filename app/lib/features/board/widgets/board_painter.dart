@@ -458,40 +458,6 @@ class BoardPainter extends CustomPainter {
     }
   }
 
-  void _drawPackets(Canvas canvas) {
-    const packetCount = 6;
-    final n  = boardSize;
-    final n1 = n - 1.0;
-    final packetPaint = Paint()
-      ..style = PaintingStyle.fill
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
-    for (int i = 0; i < packetCount; i++) {
-      final isRow   = i % 2 == 0;
-      final lineIdx = ((i * 3 + 2) % (n - 2)) + 1.0;
-      final phase   = (packetPhase + i / packetCount) % 1.0;
-      final t       = phase * n1;
-      final colors  = [
-        CyberpunkColors.signalP1,
-        CyberpunkColors.signalP2,
-        CyberpunkColors.signalP3,
-        CyberpunkColors.signalP4,
-      ];
-      final col = colors[i % colors.length].withValues(alpha: 0.80);
-      packetPaint.color = col;
-      final Offset pos;
-      if (isRow) {
-        pos = _proj(t, lineIdx, 0.01);
-      } else {
-        pos = _proj(lineIdx, t, 0.01);
-      }
-      canvas.drawCircle(pos, 1.8, packetPaint);
-      packetPaint.color = col.withValues(alpha: 0.30);
-      packetPaint.maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);
-      canvas.drawCircle(pos, 4.0, packetPaint);
-      packetPaint.maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
-    }
-  }
-
   void _drawNetworkNodes(Canvas canvas) {
     final n = boardSize;
     final starSet = _starPositions().toSet();

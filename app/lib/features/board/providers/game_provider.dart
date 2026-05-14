@@ -103,7 +103,7 @@ final gameStateProvider =
 
 /// Stores the last N terminal-style log lines for display in the HUD.
 class GameLogNotifier extends Notifier<List<String>> {
-  static const _maxLines = 50;
+  static const _maxLines = 10;
 
   @override
   List<String> build() => const [];

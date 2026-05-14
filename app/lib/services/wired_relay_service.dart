@@ -48,54 +48,102 @@ class WiredRelay {
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
+  //
+  // New signalling model (guest-as-offerer):
+  //   • All guests post their SDP offers to  ghm-{roomCode}-o  (shared topic).
+  //   • Host monitors that topic and replies on  ghm-{roomCode}-a-{sessionId}
+  //     (per-guest answer topic, keyed by the guest's session UUID).
+  //
+  // This lets every guest use the same room code — no per-guest relay code.
 
-  /// Posts [offerSdp] to the relay under [relayCode].
-  static Future<void> postOffer(
-    String relayCode,
+  /// Guest → posts its SDP offer to the shared room offer topic.
+  static Future<void> postGuestOffer(
+    String roomCode,
     String sessionId,
     String offerSdp,
   ) async {
     final body = jsonEncode({'sdp': _compress(offerSdp), 'sid': sessionId});
     await http
         .post(
-          Uri.parse('$_base/${_offerTopic(relayCode)}'),
+          Uri.parse('$_base/${_offerTopic(roomCode)}'),
           headers: {'Content-Type': 'application/json'},
           body: body,
         )
         .timeout(const Duration(seconds: 15));
   }
 
-  /// Fetches the latest SDP offer posted for [relayCode].
+  /// Host → fetches ALL pending guest offers for [roomCode].
   ///
-  /// Returns `null` if no offer has been posted yet or on error.
-  static Future<WiredRelayPayload?> fetchOffer(String relayCode) async {
-    return _fetchLatest(_offerTopic(relayCode));
+  /// Returns every message ever posted to the offer topic so the host can
+  /// process new session IDs it hasn't seen yet.
+  static Future<List<WiredRelayPayload>> fetchAllGuestOffers(
+      String roomCode) async {
+    return _fetchAll(_offerTopic(roomCode));
   }
 
-  /// Posts [answerSdp] to the relay under [relayCode].
-  static Future<void> postAnswer(
-    String relayCode,
+  /// Host → posts its SDP answer for a specific guest session.
+  static Future<void> postHostAnswer(
+    String roomCode,
     String sessionId,
     String answerSdp,
   ) async {
+    final answerTopic = '${_answerTopic(roomCode)}-$sessionId';
     final body = jsonEncode({'sdp': _compress(answerSdp), 'sid': sessionId});
     await http
         .post(
-          Uri.parse('$_base/${_answerTopic(relayCode)}'),
+          Uri.parse('$_base/$answerTopic'),
           headers: {'Content-Type': 'application/json'},
           body: body,
         )
         .timeout(const Duration(seconds: 15));
   }
 
-  /// Checks whether an SDP answer has been posted for [relayCode].
+  /// Guest → polls for the host's answer for its specific session.
   ///
-  /// Returns `null` if no answer has been posted yet or on error.
-  static Future<WiredRelayPayload?> pollAnswer(String relayCode) async {
-    return _fetchLatest(_answerTopic(relayCode));
+  /// Returns `null` if the host has not yet posted an answer.
+  static Future<WiredRelayPayload?> pollHostAnswer(
+    String roomCode,
+    String sessionId,
+  ) async {
+    final answerTopic = '${_answerTopic(roomCode)}-$sessionId';
+    return _fetchLatest(answerTopic);
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────
+
+  /// Returns every message ever posted to [topic] (oldest first).
+  static Future<List<WiredRelayPayload>> _fetchAll(String topic) async {
+    try {
+      final resp = await http
+          .get(Uri.parse('$_base/$topic/json?poll=1&since=all'))
+          .timeout(const Duration(seconds: 10));
+      if (resp.statusCode != 200) return const [];
+      if (resp.body.length > 524288) return const [];
+
+      final results = <WiredRelayPayload>[];
+      for (final line in resp.body.trim().split('\n')) {
+        if (line.isEmpty) continue;
+        try {
+          final event = jsonDecode(line) as Map<String, dynamic>;
+          if (event['event'] != 'message') continue;
+          final payload =
+              jsonDecode(event['message'] as String) as Map<String, dynamic>;
+          final compressed = payload['sdp'] as String?;
+          final sid = payload['sid'] as String?;
+          if (compressed == null || sid == null) continue;
+          results.add(WiredRelayPayload(
+            sdp: _decompress(compressed),
+            sessionId: sid,
+          ));
+        } catch (_) {
+          continue;
+        }
+      }
+      return results;
+    } catch (_) {
+      return const [];
+    }
+  }
 
   static Future<WiredRelayPayload?> _fetchLatest(String topic) async {
     try {

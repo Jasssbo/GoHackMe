@@ -79,16 +79,16 @@ class GoRules {
 
   /// Validates whether [color] may place a stone at [pos] on [board].
   ///
-  /// [boardHistory] is the sequence of previous board states (after every
-  /// completed move) for superko checking – oldest first.
+  /// [boardHashes] contains [Board.hashCode] for every prior position,
+  /// oldest first.  Using hashes keeps superko checking O(1) per prior
+  /// state and removes the need for any history cap.
   ///
-  /// Returns `null` when the move is legal; returns a human-readable error
-  /// string otherwise.
+  /// Returns `null` when the move is legal; returns an error string otherwise.
   static String? validatePlacement(
     Board board,
     Position pos,
     StoneColor color,
-    List<Board> boardHistory,
+    List<int> boardHashes,
   ) {
     if (!board.isInBounds(pos)) return 'OUT_OF_BOUNDS';
     if (board.at(pos) != null) return 'INTERSECTION_OCCUPIED';
@@ -108,9 +108,8 @@ class GoRules {
     }
 
     // Superko check: the resulting board must not match any previous state.
-    for (final historicBoard in boardHistory) {
-      if (boardAfterCaptures == historicBoard) return 'KO_VIOLATION';
-    }
+    final resultHash = boardAfterCaptures.hashCode;
+    if (boardHashes.contains(resultHash)) return 'KO_VIOLATION';
 
     return null; // ✔ legal
   }

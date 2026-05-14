@@ -39,8 +39,12 @@ class GameState {
   // Board
   final Board board;
 
-  /// Full history of boards (oldest first) used for superko detection.
-  final List<Board> boardHistory;
+  /// Board hash history (oldest first) used for superko detection.
+  ///
+  /// Stores [Board.hashCode] after every completed placement.  Using hashes
+  /// instead of full [Board] snapshots keeps serialised state small while
+  /// preserving the complete position history — no cap needed.
+  final List<int> boardHashes;
 
   // Players
   final List<Player> players;
@@ -71,7 +75,7 @@ class GameState {
 
   const GameState({
     required this.board,
-    required this.boardHistory,
+    required this.boardHashes,
     required this.players,
     required this.currentPlayerIndex,
     required this.subnets,
@@ -112,7 +116,7 @@ class GameState {
     assert(players.length >= 2 && players.length <= 4);
     return GameState(
       board: Board(size: boardSize),
-      boardHistory: const [],
+      boardHashes: const [],
       players: players,
       currentPlayerIndex: 0,
       subnets: {for (final p in players) p.id: initialSubnets},
@@ -130,7 +134,7 @@ class GameState {
 
   GameState copyWith({
     Board? board,
-    List<Board>? boardHistory,
+    List<int>? boardHashes,
     List<Player>? players,
     int? currentPlayerIndex,
     Map<String, int>? subnets,
@@ -144,7 +148,7 @@ class GameState {
   }) =>
       GameState(
         board: board ?? this.board,
-        boardHistory: boardHistory ?? this.boardHistory,
+        boardHashes: boardHashes ?? this.boardHashes,
         players: players ?? this.players,
         currentPlayerIndex: currentPlayerIndex ?? this.currentPlayerIndex,
         subnets: subnets ?? this.subnets,
@@ -166,17 +170,12 @@ class GameState {
             (pos, color) => MapEntry('${pos.x},${pos.y}', color.name),
           ),
         },
-        'boardHistory': boardHistory.map((b) => b.stones.map(
-              (pos, color) => MapEntry('${pos.x},${pos.y}', color.name),
-            )).toList(),
         'players': players.map((p) => p.toJson()).toList(),
         'currentPlayerIndex': currentPlayerIndex,
         'subnets': subnets,
         'captureCount': captureCount,
         'patchShields': patchShields,
         'backdoorBy': backdoorBy,
-        'turnNumber': turnNumber,
-        'consecutivePasses': consecutivePasses,
         'phase': phase.name,
         'activeEffects': activeEffects.map((e) => e.toJson()).toList(),
       };
@@ -192,24 +191,14 @@ class GameState {
       stones[pos] = StoneColor.values.byName(entry.value as String);
     }
 
-    Board boardFromStones(Map<String, dynamic> raw, int size) {
-      final s = <Position, StoneColor>{};
-      for (final e in raw.entries) {
-        final p = e.key.split(',');
-        s[Position(int.parse(p[0]), int.parse(p[1]))] =
-            StoneColor.values.byName(e.value as String);
-      }
-      return Board(size: size, stones: s);
-    }
-
-    final historyRaw = json['boardHistory'] as List<dynamic>;
-    final boardHistory = historyRaw
-        .map((h) => boardFromStones(h as Map<String, dynamic>, boardSize))
-        .toList();
+    final boardHashes = (json['boardHashes'] as List<dynamic>?)
+        ?.map((h) => h as int)
+        .toList() ??
+        const <int>[];
 
     return GameState(
       board: Board(size: boardSize, stones: stones),
-      boardHistory: boardHistory,
+      boardHashes: boardHashes,
       players:
           (json['players'] as List).map((p) => Player.fromJson(p as Map<String, dynamic>)).toList(),
       currentPlayerIndex: json['currentPlayerIndex'] as int,
@@ -220,8 +209,8 @@ class GameState {
             (k, v) => MapEntry(k as String, v as String?),
           ) ??
           {},
-      turnNumber: json['turnNumber'] as int,
-      consecutivePasses: json['consecutivePasses'] as int,
+      turnNumber: json['turnNumber'] as int? ?? 0,
+      consecutivePasses: json['consecutivePasses'] as int? ?? 0,
       phase: GamePhase.values.byName(json['phase'] as String),
       activeEffects: (json['activeEffects'] as List)
           .map((e) => ActiveEffect.fromJson(e as Map<String, dynamic>))

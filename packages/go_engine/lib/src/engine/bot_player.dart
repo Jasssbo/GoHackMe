@@ -101,7 +101,7 @@ class BotPlayer {
           state.board,
           pos,
           color,
-          state.boardHistory,
+          state.boardHashes,
         );
         if (err == null) legal.add(pos);
       }

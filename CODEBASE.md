@@ -59,7 +59,7 @@ GameState         — the entire, serialisable game state (see §2.3).
 | Field | What it is |
 |---|---|
 | `board` | The current `Board` snapshot. |
-| `boardHistory` | All previous `Board` snapshots. Used for superko (full board Ko rule). |
+| `boardHashes` | `Board.hashCode` for every prior position. Used for superko (full Ko rule). |
 | `players` | Ordered list of `Player` objects. Order never changes after game start. |
 | `currentPlayerIndex` | Index into `players`. Determines whose turn it is. |
 | `subnets` | `Map<playerId, int>`. The hack-point currency. |

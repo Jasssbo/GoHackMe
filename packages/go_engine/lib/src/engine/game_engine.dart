@@ -74,7 +74,7 @@ class GameEngine {
       state.board,
       pos,
       color,
-      state.boardHistory,
+      state.boardHashes,
     );
     if (error != null) return ActionFailure(error);
 
@@ -107,12 +107,12 @@ class GameEngine {
     final victimIdx = state.players.indexWhere((p) => p.id == victimId);
     final color = StoneColor.fromIndex(victimIdx);
 
-    // Validate Go rules using the victim's colour.
+    // Validate Go rules using the victim’s colour.
     final error = GoRules.validatePlacement(
       state.board,
       pos,
       color,
-      state.boardHistory,
+      state.boardHashes,
     );
     if (error != null) return ActionFailure(error);
 
@@ -140,9 +140,9 @@ class GameEngine {
     }
 
     final newHistory = [
-      ...state.boardHistory,
-      state.board,
-    ].reversed.take(20).toList().reversed.toList();
+      ...state.boardHashes,
+      state.board.hashCode,
+    ];
 
     final log = captureCount > 0
         ? '>> BACKDOOR :: HIJACK_NODE ($captureCount captured) [+$earned SN]${honeypotLog.isNotEmpty ? ' | $honeypotLog' : ''}'
@@ -162,7 +162,7 @@ class GameEngine {
     final nextPlayerId = state.players[nextIndex].id;
     var nextState = state.copyWith(
       board: finalBoard,
-      boardHistory: newHistory,
+      boardHashes: newHistory,
       subnets: newSubnets,
       captureCount: newCaptures,
       consecutivePasses: 0,
@@ -451,9 +451,9 @@ class GameEngine {
     }
 
     final newHistory = [
-      ...state.boardHistory,
-      state.board,
-    ].reversed.take(20).toList().reversed.toList();
+      ...state.boardHashes,
+      state.board.hashCode,
+    ];
 
     final log = captureCount > 0
         ? '>> NODE_CAPTURE :: $captureCount TAKEN [+$earned SN]${honeypotLog.isNotEmpty ? ' | $honeypotLog' : ''}'
@@ -470,7 +470,7 @@ class GameEngine {
     final nextPlayerId = state.players[nextIndex].id;
     var nextState = state.copyWith(
       board: finalBoard,
-      boardHistory: newHistory,
+      boardHashes: newHistory,
       subnets: newSubnets,
       captureCount: newCaptureCount,
       consecutivePasses: 0,

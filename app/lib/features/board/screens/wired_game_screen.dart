@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_engine/go_engine.dart';
 import 'package:go_router/go_router.dart';
@@ -15,7 +14,6 @@ import '../widgets/game_layout.dart';
 // ── Accent palette for The Wired ─────────────────────────────────────────
 
 const _kIndigo = Color(0xFF8B5CF6);        // vivid indigo
-const _kIndigoFaint = Color(0xFF1E0A40);   // very dim indigo for borders
 const _kIndigoBg = Color(0xFF0A0614);      // near-black with indigo cast
 
 // ── WiredGameScreen ───────────────────────────────────────────────────────
@@ -97,9 +95,6 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
                 onBack: () => _leave(context),
               );
 
-      case WiredStatus.generatingInvite:
-        return const _WiredLoadingScreen(label: 'GENERATING_HANDSHAKE...');
-
       case WiredStatus.connecting:
         return const _WiredLoadingScreen(label: 'CONNECTING_TO_RELAY...');
 
@@ -109,12 +104,9 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
         return ws.role == WiredRole.host
             ? _HostWaitingPanel(
                 roomCode: ws.roomCode,
-                inviteCode: ws.inviteCode,
                 players: ws.connectedPlayers,
                 maxPlayers: ws.maxPlayers,
                 logLines: ws.logLines,
-                onInvite: () =>
-                    ref.read(wiredGameProvider.notifier).generateInviteCode(),
                 onStart: ws.connectedPlayers.length >= 2
                     ? () => ref.read(wiredGameProvider.notifier).startGame()
                     : null,
@@ -169,7 +161,7 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
     final displayName = rawName.isNotEmpty ? rawName.toUpperCase() : 'ANONYMOUS';
 
     await ref.read(wiredGameProvider.notifier).joinWithCode(
-          relayCode: code.trim().toUpperCase(),
+          roomCode: code.trim().toUpperCase(),
           playerId: playerId,
           displayName: displayName,
         );
@@ -324,7 +316,7 @@ class _JoinEntryScreenState extends State<_JoinEntryScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Enter the 8-character RELAY_CODE from the host.',
+              'Enter the 6-character ROOM_CODE from the host.',
               style: TextStyle(
                 color: CyberpunkColors.textSecondary,
                 fontSize: 9,
@@ -409,23 +401,17 @@ class _JoinEntryScreenState extends State<_JoinEntryScreen> {
 
 class _HostWaitingPanel extends StatelessWidget {
   final String roomCode;
-
-  /// The current relay code to share with a guest (null if not yet generated).
-  final String? inviteCode;
   final List<LanPlayer> players;
   final int maxPlayers;
   final List<String> logLines;
-  final VoidCallback onInvite;
   final VoidCallback? onStart;
   final VoidCallback onBack;
 
   const _HostWaitingPanel({
     required this.roomCode,
-    required this.inviteCode,
     required this.players,
     required this.maxPlayers,
     required this.logLines,
-    required this.onInvite,
     required this.onStart,
     required this.onBack,
   });
@@ -459,12 +445,17 @@ class _HostWaitingPanel extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
+            const SizedBox(height: 4),
+            const Text(
+              'share this code with all players',
+              style: TextStyle(
+                color: CyberpunkColors.textDim,
+                fontSize: 8,
+                letterSpacing: 1.5,
+                fontFamily: 'monospace',
+              ),
+            ),
             const SizedBox(height: 16),
-
-            // Relay code display (shown after generating an invite)
-            if (inviteCode != null) _RelayCodeBox(relayCode: inviteCode!),
-
-            const SizedBox(height: 8),
 
             // Player list
             Text(
@@ -500,17 +491,13 @@ class _HostWaitingPanel extends StatelessWidget {
 
             if (players.length < maxPlayers) ...[  
               const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: onInvite,
-                  icon: const Icon(Icons.add_link, size: 14),
-                  label: Text(
-                      inviteCode == null ? 'INVITE_NODE' : 'NEW_INVITE'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _kIndigo,
-                    side: BorderSide(color: _kIndigo.withValues(alpha: 0.6)),
-                  ),
+              Text(
+                'waiting for players to connect…',
+                style: TextStyle(
+                  color: _kIndigo.withValues(alpha: 0.6),
+                  fontSize: 8,
+                  letterSpacing: 1.5,
+                  fontFamily: 'monospace',
                 ),
               ),
             ],
@@ -574,104 +561,6 @@ class _HostWaitingPanel extends StatelessWidget {
   }
 }
 
-// ── _RelayCodeBox ─────────────────────────────────────────────────────────
-
-/// Displays the 8-char relay code with a COPY button.
-class _RelayCodeBox extends StatefulWidget {
-  final String relayCode;
-  const _RelayCodeBox({required this.relayCode});
-  @override
-  State<_RelayCodeBox> createState() => _RelayCodeBoxState();
-}
-
-class _RelayCodeBoxState extends State<_RelayCodeBox> {
-  bool _copied = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        border: Border.all(color: _kIndigo.withValues(alpha: 0.6), width: 1.5),
-        color: _kIndigoFaint,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'RELAY_CODE — share with guest',
-                style: TextStyle(
-                  color: _kIndigo,
-                  fontSize: 8,
-                  letterSpacing: 2,
-                  fontFamily: 'monospace',
-                ),
-              ),
-              GestureDetector(
-                onTap: () {
-                  Clipboard.setData(
-                      ClipboardData(text: widget.relayCode));
-                  setState(() => _copied = true);
-                  Future.delayed(
-                      const Duration(seconds: 2),
-                      () => mounted
-                          ? setState(() => _copied = false)
-                          : null);
-                },
-                child: Text(
-                  _copied ? '✓ COPIED' : 'COPY',
-                  style: TextStyle(
-                    color: _copied
-                        ? CyberpunkColors.green
-                        : _kIndigo,
-                    fontSize: 8,
-                    letterSpacing: 1.5,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            widget.relayCode,
-            style: const TextStyle(
-              color: CyberpunkColors.textPrimary,
-              fontSize: 28,
-              fontFamily: 'monospace',
-              letterSpacing: 8,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              const SizedBox(
-                  width: 10,
-                  height: 10,
-                  child: CircularProgressIndicator(
-                      color: _kIndigo, strokeWidth: 1.5)),
-              const SizedBox(width: 8),
-              Text(
-                'polling relay for guest connection…',
-                style: TextStyle(
-                  color: _kIndigo.withValues(alpha: 0.6),
-                  fontSize: 8,
-                  fontFamily: 'monospace',
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 // ── _ClientWaitingPanel ────────────────────────────────────────────────────
 
 /// Client-side: connection sent to relay, waiting for channel to open.
@@ -713,7 +602,7 @@ class _ClientWaitingPanel extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Text(
-                  'Answer sent — waiting for host to complete handshake…',
+                  'Offer sent — waiting for host to respond…',
                   style: TextStyle(
                     color: _kIndigo.withValues(alpha: 0.8),
                     fontSize: 9,

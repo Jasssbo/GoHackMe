@@ -1,9 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:go_engine/go_engine.dart';
-import 'package:uuid/uuid.dart';
 
 import 'i_game_transport.dart';
 import 'lan_player.dart';
@@ -39,10 +37,12 @@ class WiredHostService implements IGameTransport {
   /// SessionIds that have a fully-open data channel.
   final _activeSessionIds = <String>{};
 
-  /// The one connection currently being negotiated (offer sent, awaiting
-  /// response).  Only one simultaneous negotiation is supported to keep the
-  /// UI flow simple.
-  WiredPeerConnection? _pendingConn;
+  /// Session IDs whose offers we have already processed (prevents re-handling
+  /// the same offer on subsequent poll cycles).
+  final _seenSessionIds = <String>{};
+
+  /// Set to false to stop the background offer-polling loop.
+  bool _isListening = false;
 
   bool _isDisposed = false;
 
@@ -82,10 +82,6 @@ class WiredHostService implements IGameTransport {
   String get roomCode => _roomCode;
   bool get gameStarted => _state != null;
 
-  /// True when an invite code has been generated and the host is waiting
-  /// for the guest's answer to arrive via the relay.
-  bool get hasPendingInvite => _pendingConn != null;
-
   // ── Setup ─────────────────────────────────────────────────────────────────
 
   void open({
@@ -103,95 +99,73 @@ class WiredHostService implements IGameTransport {
     _pending.add(LanPlayer(id: hostPlayerId, displayName: hostDisplayName));
     _playersCtrl.add(players);
     _log('WIRED_HOST_READY ROOM:$roomCode');
+
+    // Immediately start listening for guest offers on the shared room topic.
+    _startListeningForGuests();
   }
 
-  // ── Invite flow ───────────────────────────────────────────────────────────
+  // ── Guest-offer listener ──────────────────────────────────────────────────
 
-  /// Creates a WebRTC peer connection, posts the SDP offer to the relay,
-  /// and returns a short 8-character relay code for the guest to enter.
+  /// Polls the shared offer topic every 3 s for up to ~4 min.
   ///
-  /// The handshake completes automatically in the background: this service
-  /// polls the relay for the guest's answer and opens the data channel
-  /// without any further host interaction.
-  ///
-  /// Only one pending negotiation is tracked at a time; calling this again
-  /// cancels the previous pending invite.
-  Future<String> createInviteCode() async {
-    // Discard any stale pending negotiation.
-    if (_pendingConn != null) {
-      await _pendingConn!.dispose();
-      _pendingConn = null;
-    }
-
-    final sessionId = const Uuid().v4();
-    final conn = WiredPeerConnection(sessionId);
-    _pendingConn = conn;
-    _conns[sessionId] = conn;
-
-    _log('GENERATING_OFFER...');
-    final offerSdp = await conn.createOffer();
-
-    final relayCode = _makeRelayCode();
-    _log('POSTING_TO_RELAY...');
-    await WiredRelay.postOffer(relayCode, sessionId, offerSdp);
-
-    _statusCtrl.add('INVITE_READY');
-    _log('RELAY_READY — CODE:$relayCode');
-
-    // Start background polling for the guest's answer.
-    _pollForAnswer(conn, relayCode);
-
-    return relayCode;
-  }
-
-  /// Generates a short, typeable 8-character alphanumeric relay code.
-  static String _makeRelayCode() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    final rand = Random.secure();
-    return List.generate(8, (_) => chars[rand.nextInt(chars.length)]).join();
-  }
-
-  /// Polls the relay every 3 seconds for up to ~4 minutes.
-  ///
-  /// When the guest's answer arrives, the WebRTC handshake is completed
-  /// automatically and the data channel is opened.
-  Future<void> _pollForAnswer(
-      WiredPeerConnection conn, String relayCode) async {
-    for (int attempt = 0; attempt < 80; attempt++) {
-      // Stop if the invite was superseded or the service was disposed.
-      if (_isDisposed || _pendingConn != conn) return;
-
-      final payload = await WiredRelay.pollAnswer(relayCode);
-
-      if (_isDisposed || _pendingConn != conn) return; // cancelled while awaiting HTTP
-
-      if (payload != null && payload.sessionId == conn.sessionId) {
-        _pendingConn = null;
-        await _completeHandshake(conn, payload.sdp);
-        return;
-      }
-
+  /// Each new guest posts its SDP offer to `ghm-{roomCode}-o`; this loop
+  /// picks them up, generates an answer, and posts it to
+  /// `ghm-{roomCode}-a-{sessionId}` so each guest gets exactly its own answer.
+  void _startListeningForGuests() async {
+    _isListening = true;
+    for (int attempt = 0; attempt < 80 && _isListening && !_isDisposed; attempt++) {
+      try {
+        final offers = await WiredRelay.fetchAllGuestOffers(_roomCode);
+        for (final offer in offers) {
+          if (_isDisposed || !_isListening) return;
+          if (_seenSessionIds.contains(offer.sessionId)) continue;
+          _seenSessionIds.add(offer.sessionId);
+          // Handle in the background — don't block the poll loop.
+          _acceptGuestOffer(offer);
+        }
+      } catch (_) {}
+      if (!_isListening || _isDisposed) return;
       await Future.delayed(const Duration(seconds: 3));
     }
-    _log('RELAY_POLL_TIMEOUT — tap INVITE_NODE to generate a new code');
+    _isListening = false;
   }
 
-  Future<void> _completeHandshake(
-      WiredPeerConnection conn, String answerSdp) async {
-    _log('ANSWER_RECEIVED — COMPLETING_HANDSHAKE...');
+  /// Completes the WebRTC handshake for one guest offer.
+  Future<void> _acceptGuestOffer(WiredRelayPayload offer) async {
+    final conn = WiredPeerConnection(offer.sessionId);
+    _conns[offer.sessionId] = conn;
+
+    _log('GUEST_OFFER_RECEIVED sid=${offer.sessionId.substring(0, 8)}');
+
+    String answerSdp;
     try {
-      await conn.acceptAnswer(answerSdp);
+      answerSdp = await conn.createAnswer(offer.sdp);
     } catch (e) {
-      _log('HANDSHAKE_ERROR: $e');
+      _log('ANSWER_ERROR: $e');
+      _conns.remove(offer.sessionId);
       return;
     }
 
-    await conn.onOpen
-        .first
-        .timeout(const Duration(seconds: 15), onTimeout: () {});
+    try {
+      await WiredRelay.postHostAnswer(_roomCode, offer.sessionId, answerSdp);
+    } catch (e) {
+      _log('RELAY_POST_ERROR: $e');
+      _conns.remove(offer.sessionId);
+      return;
+    }
+
+    _log('ANSWER_POSTED — waiting for channel sid=${offer.sessionId.substring(0, 8)}');
+
+    try {
+      await conn.onOpen.first.timeout(const Duration(seconds: 20));
+    } catch (_) {
+      _log('CHANNEL_OPEN_TIMEOUT sid=${offer.sessionId.substring(0, 8)}');
+      _conns.remove(offer.sessionId);
+      return;
+    }
 
     if (!conn.isOpen) {
-      _log('CHANNEL_OPEN_TIMEOUT');
+      _conns.remove(offer.sessionId);
       return;
     }
 
@@ -508,17 +482,17 @@ class WiredHostService implements IGameTransport {
   @override
   Future<void> dispose() async {
     _isDisposed = true;
+    _isListening = false;
     for (final conn in _conns.values) {
       await conn.dispose();
     }
     _conns.clear();
     _activeSessionIds.clear();
-    _pendingConn = null;
 
-    if (!_stateCtrl.isClosed) await _stateCtrl.close();
-    if (!_logCtrl.isClosed) await _logCtrl.close();
-    if (!_playersCtrl.isClosed) await _playersCtrl.close();
-    if (!_errorCtrl.isClosed) await _errorCtrl.close();
-    if (!_statusCtrl.isClosed) await _statusCtrl.close();
+    await _stateCtrl.close();
+    await _logCtrl.close();
+    await _playersCtrl.close();
+    await _errorCtrl.close();
+    await _statusCtrl.close();
   }
 }

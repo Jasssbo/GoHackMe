@@ -6,7 +6,7 @@ import 'package:go_engine/go_engine.dart';
 // ── Local game log ────────────────────────────────────────────────────────
 
 class LocalGameLogNotifier extends Notifier<List<String>> {
-  static const _maxLines = 50;
+  static const _maxLines = 10;
 
   @override
   List<String> build() => [];

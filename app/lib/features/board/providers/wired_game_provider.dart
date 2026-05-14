@@ -18,8 +18,6 @@ enum WiredRole { host, client }
 enum WiredStatus {
   /// Nothing initialised.
   idle,
-  /// Host: generating invite code and posting to relay.
-  generatingInvite,
   /// Host/client: negotiating WebRTC connection.
   connecting,
   /// Waiting for host to start (lobby phase).
@@ -45,10 +43,7 @@ class WiredGameState {
   final int maxPlayers;
   final String? errorMessage;
 
-  /// The current invite code (host shows to guest).
-  final String? inviteCode;
-
-  /// True while [WiredGameNotifier.acceptResponseCode] is in progress.
+  /// True while [WiredGameNotifier.joinWithCode] is in progress.
   final bool isConnecting;
 
   const WiredGameState({
@@ -61,7 +56,6 @@ class WiredGameState {
     this.connectedPlayers = const [],
     this.maxPlayers = 2,
     this.errorMessage,
-    this.inviteCode,
     this.isConnecting = false,
   });
 
@@ -75,7 +69,6 @@ class WiredGameState {
     List<LanPlayer>? connectedPlayers,
     int? maxPlayers,
     String? errorMessage,
-    String? inviteCode,
     bool? isConnecting,
   }) =>
       WiredGameState(
@@ -88,7 +81,6 @@ class WiredGameState {
         connectedPlayers: connectedPlayers ?? this.connectedPlayers,
         maxPlayers: maxPlayers ?? this.maxPlayers,
         errorMessage: errorMessage ?? this.errorMessage,
-        inviteCode: inviteCode ?? this.inviteCode,
         isConnecting: isConnecting ?? this.isConnecting,
       );
 }
@@ -150,35 +142,14 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     _subs.add(svc.statusStream.listen(_onHostStatus));
   }
 
-  /// Creates a new invite code, posts the offer to the relay, and starts
-  /// background polling.  Transitions back to [WiredStatus.waiting] with
-  /// [inviteCode] holding the short 8-char relay code to share.
-  Future<void> generateInviteCode() async {
-    if (_hostService == null) return;
-    state = state.copyWith(status: WiredStatus.generatingInvite, inviteCode: null);
-
-    try {
-      final relayCode = await _hostService!.createInviteCode();
-      state = state.copyWith(
-        status: WiredStatus.waiting,
-        inviteCode: relayCode, // 8-char code for the guest to type
-      );
-    } catch (e) {
-      state = state.copyWith(
-        status: WiredStatus.waiting,
-        errorMessage: 'INVITE_GEN_FAILED: $e',
-      );
-    }
-  }
-
   /// Starts the game (host only, ≥ 2 players required).
   void startGame() => _hostService?.startGame();
 
   // ── Client setup ──────────────────────────────────────────────────────────
 
-  /// Connects as a client using the host's 8-char relay code.
+  /// Connects as a client using the host's 6-char room code.
   Future<void> joinWithCode({
-    required String relayCode,
+    required String roomCode,
     required String playerId,
     required String displayName,
   }) async {
@@ -190,22 +161,21 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
       status: WiredStatus.connecting,
       role: WiredRole.client,
       localPlayerId: playerId,
-      roomCode: relayCode.toUpperCase(),
+      roomCode: roomCode.toUpperCase(),
     );
 
     _subscribeToTransport();
 
     final ok = await svc.connectWithCode(
-      relayCode: relayCode,
+      roomCode: roomCode.toUpperCase(),
       playerId: playerId,
       displayName: displayName,
-      roomCode: relayCode.toUpperCase(),
     );
 
     if (!ok) {
       state = state.copyWith(
         status: WiredStatus.error,
-        errorMessage: 'FAILED_TO_CONNECT — invalid code or no offer found',
+        errorMessage: 'FAILED_TO_CONNECT — invalid or expired room code',
       );
       return;
     }
@@ -266,11 +236,6 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
 
   void _onHostStatus(String event) {
     // Forward meaningful host-side events as log lines.
-    if (event.startsWith('PLAYER_JOINED:')) {
-      // Player list will arrive via playerListStream; just log it.
-    } else if (event == 'INVITE_READY') {
-      _addLog('INVITE_CODE_READY');
-    }
   }
 
   void _addLog(String line) {

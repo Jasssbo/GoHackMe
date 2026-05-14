@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:go_engine/go_engine.dart';
+import 'package:uuid/uuid.dart';
 
 import 'i_game_transport.dart';
 import 'lan_player.dart';
@@ -12,13 +13,14 @@ import 'wired_relay_service.dart';
 
 /// WebRTC client for "The Wired" mode.
 ///
-/// Flow:
-///   1. Caller receives the host's 8-char relay code.
-///   2. [connectWithCode] fetches the SDP offer from the relay, generates an
-///      answer, and posts it back — all automatically.
-///   3. The host's background polling detects the answer and opens the channel.
-///   4. [WiredClientService] sends a [MessageType.joinRoom] message.
-///   5. The host broadcasts [GameState] updates; [stateStream] emits them.
+/// Flow (guest-as-offerer):
+///   1. Caller receives the host's 6-char room code.
+///   2. [connectWithCode] creates a WebRTC offer and posts it to the shared
+///      offer topic on the relay — the same topic all guests use.
+///   3. The host's background poller picks up the offer, generates an answer,
+///      and posts it to the per-session answer topic.
+///   4. [WiredClientService] polls for its answer, completes the handshake,
+///      and sends a [MessageType.joinRoom] message once the channel opens.
 class WiredClientService implements IGameTransport {
   WiredPeerConnection? _conn;
 
@@ -43,53 +45,72 @@ class WiredClientService implements IGameTransport {
 
   // ── Relay-based connection ────────────────────────────────────────────────
 
-  /// Fetches the host's SDP offer from the relay, generates an answer, and
-  /// posts it back — all in one call.  Returns `true` on success.
-  ///
-  /// After this returns, listen to [stateStream] for game state updates.
+  /// Creates a WebRTC offer, posts it to the shared room offer topic, and
+  /// polls for the host's answer — all in one call.  Returns `true` on
+  /// success (channel will open asynchronously; watch [stateStream]).
   Future<bool> connectWithCode({
-    required String relayCode,
+    required String roomCode,
     required String playerId,
     required String displayName,
-    required String roomCode,
   }) async {
     _playerId = playerId;
     _displayName = displayName;
     _roomCode = roomCode;
 
-    _log('FETCHING_OFFER_FROM_RELAY...');
-    final payload = await WiredRelay.fetchOffer(relayCode);
-    if (payload == null) {
-      _errorCtrl.add('OFFER_NOT_FOUND — check the code and try again');
-      return false;
-    }
-
-    final conn = WiredPeerConnection(payload.sessionId);
+    final sessionId = const Uuid().v4();
+    final conn = WiredPeerConnection(sessionId);
     _conn = conn;
 
-    _log('GENERATING_ANSWER...');
-    String answerSdp;
+    _log('GENERATING_OFFER...');
+    String offerSdp;
     try {
-      answerSdp = await conn.createAnswer(payload.sdp);
+      offerSdp = await conn.createOffer();
     } catch (e) {
-      _errorCtrl.add('ANSWER_ERROR: $e');
+      _errorCtrl.add('OFFER_ERROR: $e');
       return false;
     }
 
-    _log('POSTING_ANSWER_TO_RELAY...');
+    _log('POSTING_OFFER_TO_RELAY...');
     try {
-      await WiredRelay.postAnswer(relayCode, payload.sessionId, answerSdp);
+      await WiredRelay.postGuestOffer(roomCode, sessionId, offerSdp);
     } catch (e) {
       _errorCtrl.add('RELAY_POST_ERROR: $e');
       return false;
     }
 
-    _waitForChannel(conn);
-    _log('ANSWER_SENT — AWAITING_CHANNEL...');
+    _log('OFFER_POSTED \u2014 AWAITING_HOST_ANSWER...');
+    _pollForAnswer(conn, roomCode, sessionId);
     return true;
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────
+
+  /// Polls for the host's per-session answer every 3 s for up to ~4 min.
+  Future<void> _pollForAnswer(
+      WiredPeerConnection conn, String roomCode, String sessionId) async {
+    for (int attempt = 0; attempt < 80; attempt++) {
+      if (_conn != conn) return; // superseded by a new connection attempt
+
+      final payload = await WiredRelay.pollHostAnswer(roomCode, sessionId);
+
+      if (_conn != conn) return;
+
+      if (payload != null && payload.sessionId == sessionId) {
+        _log('HOST_ANSWER_RECEIVED \u2014 COMPLETING_HANDSHAKE...');
+        try {
+          await conn.acceptAnswer(payload.sdp);
+        } catch (e) {
+          _errorCtrl.add('HANDSHAKE_ERROR: $e');
+          return;
+        }
+        _waitForChannel(conn);
+        return;
+      }
+
+      await Future.delayed(const Duration(seconds: 3));
+    }
+    _errorCtrl.add('RELAY_POLL_TIMEOUT \u2014 host did not respond');
+  }
 
   void _waitForChannel(WiredPeerConnection conn) {
     conn.onOpen.first.then((_) => _onChannelOpen(conn));
