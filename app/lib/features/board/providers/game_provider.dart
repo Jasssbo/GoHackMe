@@ -112,7 +112,8 @@ class GameLogNotifier extends Notifier<List<String>> {
     final ts = DateTime.now();
     final stamp =
         '[${ts.hour.toString().padLeft(2, '0')}:${ts.minute.toString().padLeft(2, '0')}:${ts.second.toString().padLeft(2, '0')}]';
-    state = [...state, '$stamp $line'].takeLast(_maxLines).toList();
+    final next = [...state, '$stamp $line'];
+    state = next.length > _maxLines ? next.sublist(next.length - _maxLines) : next;
   }
 
   void clear() => state = const [];
@@ -120,8 +121,3 @@ class GameLogNotifier extends Notifier<List<String>> {
 
 final gameLogProvider =
     NotifierProvider<GameLogNotifier, List<String>>(GameLogNotifier.new);
-
-extension _TakeLast<T> on List<T> {
-  List<T> takeLast(int n) =>
-      length <= n ? this : sublist(length - n);
-}

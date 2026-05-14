@@ -23,6 +23,14 @@ final _kUuidPattern = RegExp(
 /// Room ID: 4–64 alphanumeric / dash characters (client generates 8-char hex).
 final _kRoomIdPattern = RegExp(r'^[A-Za-z0-9\-]{4,64}$');
 
+/// Returns an error reason string if playerId/roomId fail format validation,
+/// null if both are valid.
+String? _validatePlayerAndRoom(String playerId, String roomId) {
+  if (!_kUuidPattern.hasMatch(playerId)) return 'INVALID_PLAYER_ID_FORMAT';
+  if (!_kRoomIdPattern.hasMatch(roomId)) return 'INVALID_ROOM_ID_FORMAT';
+  return null;
+}
+
 Handler buildWsHandler(RoomManager roomManager) {
   return webSocketHandler((WebSocketChannel channel, String? protocol) {
     String? connectedPlayerId;
@@ -96,21 +104,10 @@ Handler buildWsHandler(RoomManager roomManager) {
             return;
           }
 
-          // VULN-A01: Validate playerId format (UUID v4) and roomId format
-          // (hex/alnum, 4–64 chars) to prevent log injection and identity
-          // spoofing via crafted strings.
-          if (!_kUuidPattern.hasMatch(playerId)) {
-            channel.sink.add(
-              GameMessage.error(reason: 'INVALID_PLAYER_ID_FORMAT')
-                  .toJsonString(),
-            );
-            return;
-          }
-          if (!_kRoomIdPattern.hasMatch(roomId)) {
-            channel.sink.add(
-              GameMessage.error(reason: 'INVALID_ROOM_ID_FORMAT')
-                  .toJsonString(),
-            );
+          // Validate playerId (UUID v4) and roomId to prevent log injection / identity spoofing.
+          final joinError = _validatePlayerAndRoom(playerId, roomId);
+          if (joinError != null) {
+            channel.sink.add(GameMessage.error(reason: joinError).toJsonString());
             return;
           }
 

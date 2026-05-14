@@ -164,9 +164,9 @@ class WiredClientService implements IGameTransport {
     await _conn?.dispose();
     _conn = null;
 
-    if (!_stateCtrl.isClosed) await _stateCtrl.close();
-    if (!_logCtrl.isClosed) await _logCtrl.close();
-    if (!_playersCtrl.isClosed) await _playersCtrl.close();
-    if (!_errorCtrl.isClosed) await _errorCtrl.close();
+    await _stateCtrl.close();
+    await _logCtrl.close();
+    await _playersCtrl.close();
+    await _errorCtrl.close();
   }
 }

@@ -28,7 +28,6 @@ class LanClientService implements IGameTransport {
       StreamController<GameState>.broadcast();
   final StreamController<String> _logCtrl = StreamController<String>.broadcast();
   final StreamController<String> _errorCtrl = StreamController<String>.broadcast();
-  final StreamController<bool> _waitingCtrl = StreamController<bool>.broadcast();
   final StreamController<List<LanPlayer>> _playersCtrl =
       StreamController<List<LanPlayer>>.broadcast();
 
@@ -40,8 +39,6 @@ class LanClientService implements IGameTransport {
   Stream<String> get logStream => _logCtrl.stream;
   @override
   Stream<String> get errorStream => _errorCtrl.stream;
-  /// Emits `true` while waiting for the host to start, `false` once running.
-  Stream<bool> get waitingStream => _waitingCtrl.stream;
   @override
   Stream<List<LanPlayer>> get playerListStream => _playersCtrl.stream;
 
@@ -90,8 +87,6 @@ class LanClientService implements IGameTransport {
     // Seed the local player list with ourselves.
     _players.add(LanPlayer(id: playerId, displayName: displayName));
     _playersCtrl.add(List.unmodifiable(_players));
-
-    _waitingCtrl.add(true);
 
     // Start keepalive — send ping every 5 s, error out if host goes silent.
     _lastPong = DateTime.now();
@@ -149,7 +144,6 @@ class LanClientService implements IGameTransport {
         _lastPong = DateTime.now();
 
       case MessageType.gameStateUpdate:
-        _waitingCtrl.add(false);
         final stateJson = msg.payload['state'];
         if (stateJson is Map<String, dynamic>) {
           try {
@@ -203,10 +197,9 @@ class LanClientService implements IGameTransport {
     _socket = null;
     _buf.clear();
     _players.clear();
-    if (!_stateCtrl.isClosed) await _stateCtrl.close();
-    if (!_logCtrl.isClosed) await _logCtrl.close();
-    if (!_errorCtrl.isClosed) await _errorCtrl.close();
-    if (!_waitingCtrl.isClosed) await _waitingCtrl.close();
-    if (!_playersCtrl.isClosed) await _playersCtrl.close();
+    await _stateCtrl.close();
+    await _logCtrl.close();
+    await _errorCtrl.close();
+    await _playersCtrl.close();
   }
 }

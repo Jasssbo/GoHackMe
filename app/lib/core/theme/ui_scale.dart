@@ -17,19 +17,20 @@ class UiScale extends InheritedWidget {
 
   final double scale;
 
-  /// Returns the active UI scale factor.  Falls back to 1.0 if [UiScale] is
-  /// not present in the widget tree (e.g. in tests).
+  // Baseline shortest-side in logical pixels: all typical phones are at or
+  // below this, so scale stays at 1.0 on mobile and grows on large screens.
+  static const _kBaselineSide = 720.0;
+
+  /// Returns the active UI scale factor (falls back to 1.0 if not in tree).
   static double of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<UiScale>()?.scale ?? 1.0;
 
   /// Computes the scale factor from the current [MediaQuery] size.
   ///
-  /// Baseline: 720 logical-pixel shortest side.
-  /// Clamped to [1.0, 1.8] so phones stay unchanged and huge 4K desktops
-  /// don't over-scale.
+  /// Clamped to [1.0, 1.8]: phones stay at 1.0, large 4K desktops cap at 1.8.
   static double fromContext(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    return (size.shortestSide / 720.0).clamp(1.0, 1.8);
+    return (size.shortestSide / _kBaselineSide).clamp(1.0, 1.8);
   }
 
   @override

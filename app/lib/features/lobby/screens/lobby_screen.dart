@@ -64,11 +64,6 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
   // ── Navigation ────────────────────────────────────────────────────────────
 
   void _openNavi() => context.push(Routes.navi);

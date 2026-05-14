@@ -23,7 +23,7 @@ class Scorer {
 
     // Count live stones
     for (final entry in board.stones.entries) {
-      scores[entry.value] = (scores[entry.value] ?? 0) + 1;
+      scores[entry.value] = scores[entry.value]! + 1;
     }
 
     // Count controlled empty intersections
@@ -50,7 +50,7 @@ class Scorer {
         // If exactly one colour borders the region, it controls the territory
         if (borderColors.length == 1) {
           final owner = borderColors.first;
-          scores[owner] = (scores[owner] ?? 0) + region.length;
+          scores[owner] = scores[owner]! + region.length;
         }
       }
     }
