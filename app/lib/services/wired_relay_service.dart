@@ -48,6 +48,21 @@ class WiredRelay {
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
+
+  /// Returns `true` if ntfy.sh is reachable within 5 seconds.
+  ///
+  /// Call this before starting the signalling flow to fail fast with a
+  /// specific error rather than silently exhausting the full polling budget.
+  static Future<bool> checkConnectivity() async {
+    try {
+      final resp =
+          await http.get(Uri.parse(_base)).timeout(const Duration(seconds: 5));
+      return resp.statusCode < 500;
+    } catch (_) {
+      return false;
+    }
+  }
+
   //
   // New signalling model (guest-as-offerer):
   //   • All guests post their SDP offers to  ghm-{roomCode}-o  (shared topic).

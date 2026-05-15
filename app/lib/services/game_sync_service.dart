@@ -25,6 +25,18 @@ class GameSyncService {
 
   bool get isConnected => _channel != null;
 
+  // ── Reconnection state ──────────────────────────────────────────────────
+
+  String? _lastServerUrl;
+  String? _lastPlayerId;
+  String? _lastRoomId;
+  String? _lastDisplayName;
+  int _lastBoardSize = 19;
+  int _lastMaxPlayers = 2;
+  bool _disposed = false;
+  int _reconnectAttempts = 0;
+  static const _kMaxReconnectAttempts = 3;
+
   // ── Connect ───────────────────────────────────────────────────────────────
 
   Future<void> connect({
@@ -35,6 +47,14 @@ class GameSyncService {
     int boardSize = 19,
     int maxPlayers = 2,
   }) async {
+    // Store params for reconnection.
+    _lastServerUrl = serverUrl;
+    _lastPlayerId = playerId;
+    _lastRoomId = roomId;
+    _lastDisplayName = displayName;
+    _lastBoardSize = boardSize;
+    _lastMaxPlayers = maxPlayers;
+
     await dispose();
 
     // OWASP A01: validate URL scheme before connecting to prevent accidental
@@ -52,8 +72,14 @@ class GameSyncService {
 
     _sub = _channel!.stream.listen(
       (raw) => _handleMessage(raw as String),
-      onDone: () => _logController.add('DISCONNECTED'),
-      onError: (e) => _errorController.add('WS_ERROR: $e'),
+      onDone: () {
+        _logController.add('DISCONNECTED');
+        if (!_disposed) _scheduleReconnect();
+      },
+      onError: (e) {
+        _errorController.add('WS_ERROR: $e');
+        if (!_disposed) _scheduleReconnect();
+      },
       cancelOnError: false,
     );
 
@@ -66,7 +92,32 @@ class GameSyncService {
       maxPlayers: maxPlayers,
     ));
   }
+  // ── Reconnection ───────────────────────────────────────────────────────────
 
+  void _scheduleReconnect() {
+    if (_disposed || _reconnectAttempts >= _kMaxReconnectAttempts) {
+      _errorController.add('SERVER_DISCONNECTED');
+      return;
+    }
+    _reconnectAttempts++;
+    _logController.add('RECONNECT_ATTEMPT: $_reconnectAttempts/$_kMaxReconnectAttempts');
+    Future.delayed(Duration(seconds: _reconnectAttempts * 3), () async {
+      if (_disposed) return;
+      try {
+        await connect(
+          serverUrl: _lastServerUrl!,
+          playerId: _lastPlayerId!,
+          roomId: _lastRoomId!,
+          displayName: _lastDisplayName!,
+          boardSize: _lastBoardSize,
+          maxPlayers: _lastMaxPlayers,
+        );
+        _reconnectAttempts = 0;
+      } catch (_) {
+        _scheduleReconnect();
+      }
+    });
+  }
   // ── Send ──────────────────────────────────────────────────────────────────
 
   void send(GameMessage message) {
@@ -126,6 +177,7 @@ class GameSyncService {
   // ── Dispose ───────────────────────────────────────────────────────────────
 
   Future<void> dispose() async {
+    _disposed = true;
     await _sub?.cancel();
     await _channel?.sink.close();
     _channel = null;

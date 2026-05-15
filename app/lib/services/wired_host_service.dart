@@ -55,6 +55,10 @@ class WiredHostService implements IGameTransport {
   final List<LanPlayer> _pending = []; // lobby list
   final Set<String> _disconnectedPlayers = {};
 
+  /// Timers that expire the reconnect window (30 s) for each disconnected
+  /// guest.  When the timer fires the slot is permanently closed.
+  final _reconnectTimers = <String, Timer>{};
+
   // ── Streams ───────────────────────────────────────────────────────────────
   final _stateCtrl = StreamController<GameState>.broadcast();
   final _logCtrl = StreamController<String>.broadcast();
@@ -111,9 +115,15 @@ class WiredHostService implements IGameTransport {
   /// Each new guest posts its SDP offer to `ghm-{roomCode}-o`; this loop
   /// picks them up, generates an answer, and posts it to
   /// `ghm-{roomCode}-a-{sessionId}` so each guest gets exactly its own answer.
-  void _startListeningForGuests() async {
+  void _startListeningForGuests({int maxAttempts = 80}) async {
     _isListening = true;
-    for (int attempt = 0; attempt < 80 && _isListening && !_isDisposed; attempt++) {
+    _log('CHECKING_RELAY_CONNECTIVITY...');
+    if (!await WiredRelay.checkConnectivity()) {
+      _errorCtrl.add('SIGNALING_SERVER_UNAVAILABLE');
+      _isListening = false;
+      return;
+    }
+    for (int attempt = 0; attempt < maxAttempts && _isListening && !_isDisposed; attempt++) {
       try {
         final offers = await WiredRelay.fetchAllGuestOffers(_roomCode);
         for (final offer in offers) {
@@ -214,12 +224,25 @@ class WiredHostService implements IGameTransport {
     }
 
     _disconnectedPlayers.add(pid);
+
+    // 30-second window: if the guest doesn't reconnect, close their slot.
+    _reconnectTimers[pid]?.cancel();
+    _reconnectTimers[pid] = Timer(const Duration(seconds: 30), () {
+      _disconnectedPlayers.remove(pid);
+      _reconnectTimers.remove(pid);
+      _log('RECONNECT_TIMEOUT: $pid — slot permanently closed');
+    });
+
+    // Restart the offer-listener (may have exhausted its budget) so the
+    // guest's new offer will be picked up within the 30-second window.
+    if (!_isListening && !_isDisposed) {
+      _startListeningForGuests(maxAttempts: 10); // 10 × 3 s = 30 s
+    }
     final name = _state!.players
         .firstWhere((p) => p.id == pid,
             orElse: () => Player(id: pid, displayName: pid))
         .displayName;
     _log('PLAYER_DISCONNECTED: $name');
-
     _redistributeSubnets(pid);
     _broadcastAll(
         GameMessage(type: MessageType.playerLeft, payload: {'playerId': pid}));
@@ -277,6 +300,8 @@ class WiredHostService implements IGameTransport {
     // Reconnect path
     if (_state != null && _disconnectedPlayers.contains(pid)) {
       _disconnectedPlayers.remove(pid);
+      _reconnectTimers[pid]?.cancel();
+      _reconnectTimers.remove(pid);
       final displayName =
           _state!.players.firstWhere((p) => p.id == pid).displayName;
       _log('PLAYER_RECONNECTED: $displayName');
@@ -483,6 +508,8 @@ class WiredHostService implements IGameTransport {
   Future<void> dispose() async {
     _isDisposed = true;
     _isListening = false;
+    for (final t in _reconnectTimers.values) { t.cancel(); }
+    _reconnectTimers.clear();
     for (final conn in _conns.values) {
       await conn.dispose();
     }

@@ -1,5 +1,6 @@
 import 'position.dart';
 import 'stone_color.dart';
+import 'zobrist_table.dart';
 
 /// An immutable Go board.
 ///
@@ -11,8 +12,27 @@ class Board {
   /// Internal stone map.  Positions not present are empty.
   final Map<Position, StoneColor> _stones;
 
-  Board({required this.size, Map<Position, StoneColor>? stones})
-      : _stones = stones != null ? Map.unmodifiable(stones) : const {};
+  /// Zobrist hash of the current board position.
+  ///
+  /// This is the XOR of [ZobristTable.valueFor] for every stone on the board.
+  /// It is updated incrementally in [place] and [remove] — O(changed stones)
+  /// rather than O(all stones) — so superko detection stays O(n) total for
+  /// an n-move game rather than O(n²).
+  final int zobristHash;
+
+  Board({required this.size, Map<Position, StoneColor>? stones, int? zobristHash})
+      : _stones = stones != null ? Map.unmodifiable(stones) : const {},
+        zobristHash = zobristHash ?? _computeZobrist(stones ?? const {});
+
+  /// Computes a Zobrist hash from a stones map (used only at construction
+  /// time when no pre-computed value is available, e.g. after JSON decode).
+  static int _computeZobrist(Map<Position, StoneColor> stones) {
+    var h = 0;
+    for (final entry in stones.entries) {
+      h ^= ZobristTable.valueFor(entry.key.x, entry.key.y, entry.value);
+    }
+    return h;
+  }
 
   // ── Queries ───────────────────────────────────────────────────────────────
 
@@ -38,14 +58,23 @@ class Board {
   /// Does NOT validate Go rules – use [GoRules.validatePlacement] first.
   Board place(Position pos, StoneColor color) {
     final next = Map<Position, StoneColor>.from(_stones)..[pos] = color;
-    return Board(size: size, stones: next);
+    return Board(
+      size: size,
+      stones: next,
+      zobristHash: zobristHash ^ ZobristTable.valueFor(pos.x, pos.y, color),
+    );
   }
 
   /// Returns a new board with all [positions] removed.
   Board remove(Set<Position> positions) {
-    final next = Map<Position, StoneColor>.from(_stones)
-      ..removeWhere((k, _) => positions.contains(k));
-    return Board(size: size, stones: next);
+    var h = zobristHash;
+    final next = Map<Position, StoneColor>.from(_stones);
+    for (final pos in positions) {
+      final color = _stones[pos];
+      if (color != null) h ^= ZobristTable.valueFor(pos.x, pos.y, color);
+      next.remove(pos);
+    }
+    return Board(size: size, stones: next, zobristHash: h);
   }
 
   // ── Equality (needed for Ko detection) ───────────────────────────────────

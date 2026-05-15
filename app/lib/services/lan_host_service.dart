@@ -61,6 +61,10 @@ class LanHostService implements IGameTransport {
   /// They may reconnect; their subnets are zeroed-out on disconnect.
   final Set<String> _disconnectedPlayers = {};
 
+  /// Timers that expire the reconnect window (30 s) for each disconnected
+  /// player.  When the timer fires the player is permanently marked offline.
+  final _reconnectTimers = <String, Timer>{};
+
   // ── Streams ───────────────────────────────────────────────────────────────
   final _stateCtrl = StreamController<GameState>.broadcast();
   final _logCtrl = StreamController<String>.broadcast();
@@ -206,6 +210,8 @@ class LanHostService implements IGameTransport {
     // ── Reconnection: player was in the game but disconnected ──────────────
     if (_state != null && _disconnectedPlayers.contains(pid)) {
       _disconnectedPlayers.remove(pid);
+      _reconnectTimers[pid]?.cancel();
+      _reconnectTimers.remove(pid);
       conn.playerId = pid;
       _clients[pid] = conn;
       final displayName =
@@ -365,6 +371,14 @@ class LanHostService implements IGameTransport {
 
     // ── Mid-game disconnect ────────────────────────────────────────────────
     _disconnectedPlayers.add(pid);
+
+    // 30-second window: if they don't reconnect, close their slot.
+    _reconnectTimers[pid]?.cancel();
+    _reconnectTimers[pid] = Timer(const Duration(seconds: 30), () {
+      _disconnectedPlayers.remove(pid);
+      _reconnectTimers.remove(pid);
+      _log('RECONNECT_TIMEOUT: $pid — slot permanently closed');
+    });
 
     final name = _state!.players
         .firstWhere((p) => p.id == pid,
@@ -594,6 +608,8 @@ class LanHostService implements IGameTransport {
   Future<void> dispose() async {
     _pingTimer?.cancel();
     _pingTimer = null;
+    for (final t in _reconnectTimers.values) { t.cancel(); }
+    _reconnectTimers.clear();
     _beacon.stop();
     for (final c in _clients.values) {
       try {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:go_engine/go_engine.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -16,6 +18,12 @@ class GameRoom {
   final _connections = <String, WebSocketChannel>{}; // playerId → channel
   final _players = <Player>[];
 
+  /// Players that disconnected mid-game and are waiting within the 30-second
+  /// reconnect window.  The room stays alive until their timers expire.
+  final _disconnectedPlayerIds = <String>{};
+  final _reconnectTimers = <String, Timer>{};
+  static const _kReconnectGrace = Duration(seconds: 30);
+
   // Configurable – host sets this when creating the room
   int maxPlayers;
 
@@ -26,7 +34,7 @@ class GameRoom {
     this.maxPlayers = 2,
   });
 
-  bool get isEmpty => _connections.isEmpty;
+  bool get isEmpty => _connections.isEmpty && _reconnectTimers.isEmpty;
   bool get isFull => _players.length >= maxPlayers;
   bool get isStarted => _state != null;
   List<Player> get players => List.unmodifiable(_players);
@@ -37,6 +45,26 @@ class GameRoom {
   ///
   /// Returns an error string if the room is full or already started.
   String? addPlayer(Player player, WebSocketChannel channel) {
+    // Reconnect: player was in the game but temporarily disconnected.
+    if (_disconnectedPlayerIds.contains(player.id)) {
+      _disconnectedPlayerIds.remove(player.id);
+      _reconnectTimers[player.id]?.cancel();
+      _reconnectTimers.remove(player.id);
+      _connections[player.id] = channel;
+      // Immediately sync the returning player.
+      channel.sink.add(GameMessage(
+        type: MessageType.gameStateUpdate,
+        roomId: id,
+        payload: {'state': _state!.toJson(), 'log': 'RECONNECTED'},
+      ).toJsonString());
+      _broadcast(GameMessage(
+        type: MessageType.playerJoined,
+        roomId: id,
+        payload: {'player': player.toJson()},
+      ));
+      return null;
+    }
+
     if (isFull) return 'ROOM_FULL';
     if (_players.any((p) => p.id == player.id)) return 'ALREADY_IN_ROOM';
 
@@ -56,15 +84,38 @@ class GameRoom {
   }
 
   void removePlayer(String playerId) {
-    _players.removeWhere((p) => p.id == playerId);
     _connections.remove(playerId);
 
+    // Mid-game disconnect: keep slot alive for the reconnect grace period.
+    if (_state != null && _players.any((p) => p.id == playerId)) {
+      _disconnectedPlayerIds.add(playerId);
+      _reconnectTimers[playerId]?.cancel();
+      _reconnectTimers[playerId] = Timer(_kReconnectGrace, () {
+        _disconnectedPlayerIds.remove(playerId);
+        _reconnectTimers.remove(playerId);
+        _players.removeWhere((p) => p.id == playerId);
+        _broadcast(GameMessage(
+          type: MessageType.playerLeft,
+          roomId: id,
+          payload: {'playerId': playerId, 'reason': 'TIMED_OUT'},
+        ));
+        if (isEmpty) onEmpty();
+      });
+      _broadcast(GameMessage(
+        type: MessageType.playerLeft,
+        roomId: id,
+        payload: {'playerId': playerId},
+      ));
+      return;
+    }
+
+    // Pre-game or player not found: immediate removal.
+    _players.removeWhere((p) => p.id == playerId);
     _broadcast(GameMessage(
       type: MessageType.playerLeft,
       roomId: id,
       payload: {'playerId': playerId},
     ));
-
     if (isEmpty) onEmpty();
   }
 

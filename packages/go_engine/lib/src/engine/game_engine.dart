@@ -141,7 +141,7 @@ class GameEngine {
 
     final newHistory = [
       ...state.boardHashes,
-      state.board.hashCode,
+      state.board.zobristHash,
     ];
 
     final log = captureCount > 0
@@ -452,7 +452,7 @@ class GameEngine {
 
     final newHistory = [
       ...state.boardHashes,
-      state.board.hashCode,
+      state.board.zobristHash,
     ];
 
     final log = captureCount > 0

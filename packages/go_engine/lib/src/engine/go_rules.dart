@@ -79,7 +79,7 @@ class GoRules {
 
   /// Validates whether [color] may place a stone at [pos] on [board].
   ///
-  /// [boardHashes] contains [Board.hashCode] for every prior position,
+  /// [boardHashes] contains [Board.zobristHash] for every prior position,
   /// oldest first.  Using hashes keeps superko checking O(1) per prior
   /// state and removes the need for any history cap.
   ///
@@ -108,7 +108,7 @@ class GoRules {
     }
 
     // Superko check: the resulting board must not match any previous state.
-    final resultHash = boardAfterCaptures.hashCode;
+    final resultHash = boardAfterCaptures.zobristHash;
     if (boardHashes.contains(resultHash)) return 'KO_VIOLATION';
 
     return null; // ✔ legal

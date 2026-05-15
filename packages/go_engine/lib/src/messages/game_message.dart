@@ -63,17 +63,24 @@ class GameMessage {
   /// Type-specific data.
   final Map<String, dynamic> payload;
 
+  /// Protocol version. Increment when the wire format changes in a
+  /// backward-incompatible way.  Receivers that see an unknown version
+  /// should log a warning and skip the message rather than crash.
+  final int version;
+
   const GameMessage({
     required this.type,
     this.playerId,
     this.roomId,
     this.payload = const {},
+    this.version = 1,
   });
 
   // ── Serialisation ─────────────────────────────────────────────────────────
 
   Map<String, dynamic> toJson() => {
         'type': type.name,
+        'v': version,
         if (playerId != null) 'playerId': playerId,
         if (roomId != null) 'roomId': roomId,
         'payload': payload,
@@ -83,6 +90,7 @@ class GameMessage {
 
   factory GameMessage.fromJson(Map<String, dynamic> json) => GameMessage(
         type: MessageType.values.byName(json['type'] as String),
+        version: (json['v'] as int?) ?? 1,
         playerId: json['playerId'] as String?,
         roomId: json['roomId'] as String?,
         payload: (json['payload'] as Map<String, dynamic>?) ?? const {},

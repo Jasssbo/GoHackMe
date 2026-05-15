@@ -59,7 +59,7 @@ GameState         — the entire, serialisable game state (see §2.3).
 | Field | What it is |
 |---|---|
 | `board` | The current `Board` snapshot. |
-| `boardHashes` | `Board.hashCode` for every prior position. Used for superko (full Ko rule). |
+| `boardHashes` | Zobrist hash (62-bit) of every prior board position. Used for superko (full Ko rule). Never sent over the network — authority-only. |
 | `players` | Ordered list of `Player` objects. Order never changes after game start. |
 | `currentPlayerIndex` | Index into `players`. Determines whose turn it is. |
 | `subnets` | `Map<playerId, int>`. The hack-point currency. |
@@ -125,12 +125,18 @@ class GameMessage {
   final String? playerId;
   final String? roomId;
   final Map<String, dynamic> payload;  // type-specific data
+  final int version;         // protocol version; defaults to 1 if absent
 }
 ```
 
 `GameMessage` lives in `go_engine` so both the app and server share the
 exact same serialisation / deserialisation code. Neither side has its own
 wire format.
+
+The `version` field (key `"v"` on the wire) is `1` for the current format.
+It is omitted from old messages during deserialisation and defaults to `1`
+for backward compatibility. Increment it — and add a receiver-side guard —
+before making any breaking change to the payload structure.
 
 **Direction contract:**
 
@@ -154,7 +160,8 @@ bin/server.dart         ← Entry point. Shelf HTTP + CORS. Mounts WS handler.
 lib/src/ws_handler.dart ← Upgrades HTTP → WebSocket. Rate-limiting, size guard,
                           UUID validation. Routes messages to GameRoom.
 lib/src/room_manager.dart← HashMap<roomId, GameRoom>. Creates, looks up, and
-                           reaps rooms. Hard cap of 50 rooms.
+                           reaps rooms. Hard cap of 50 rooms; room 51 gets
+                           SERVER_FULL and its channel is closed cleanly.
 lib/src/game_room.dart  ← One room. Holds the GameState. Fans out broadcasts.
                            Calls GameEngine on each client action.
 lib/src/discovery_service.dart ← UDP beacon for LAN auto-discovery.
@@ -186,6 +193,11 @@ Client ──GameMessage──► ws_handler ──route──► GameRoom
 
 The `_validatePlayerAndRoom()` helper in `ws_handler.dart` consolidates rules 3 and 4.
 
+**Room cap:** `getOrCreate()` returns `null` when 50 rooms are already active.
+`ws_handler` detects the `null` return and sends `{type: error, reason: SERVER_FULL}`
+then closes the channel. The client receives the error and can display a message.
+No partial state is written; the room is never added to the map.
+
 ### 3.4 Room lifecycle
 
 ```
@@ -198,12 +210,46 @@ Player sends joinRoom
 
 Game progresses (handleAction loop)
 
-Last player disconnects
-    └─► GameRoom.removePlayer → isEmpty → onEmpty()
-           └─► RoomManager._reap(roomId)  (garbage collect)
+Player disconnects mid-game
+    └─► GameRoom.removePlayer
+           ├─► opens 30-second reconnect window (_reconnectTimers)
+           ├─► broadcasts playerLeft (temporary)
+           └─► on reconnect within 30 s:
+                   addPlayer detects _disconnectedPlayerIds hit
+                   → sends full gameStateUpdate (RECONNECTED)
+                   → broadcasts playerJoined
+               on timer expiry:
+                   slot is permanently removed → isEmpty → onEmpty()
+
+Last player disconnects AND all reconnect windows expire
+    └─► onEmpty() → RoomManager._reap(roomId)  (garbage collect)
 ```
 
 Rooms are also reaped after 2 hours of inactivity regardless of player count.
+
+### 3.5 Reconnection — WebSocket mode
+
+When a client's WebSocket drops, `GameSyncService` automatically retries the
+full `connect()` call (including `joinRoom`) up to **3 times** with an
+exponential-style backoff: 3 s, 6 s, 9 s.
+
+```
+WS drops (onDone / onError)
+  └─► _scheduleReconnect()
+        ├─► attempt 1 → wait 3 s → connect() → send joinRoom
+        ├─► attempt 2 → wait 6 s → connect() → send joinRoom
+        ├─► attempt 3 → wait 9 s → connect() → send joinRoom
+        └─► all failed → emit SERVER_DISCONNECTED on errorStream
+```
+
+On the server, `GameRoom` holds the player slot open for **30 seconds** after
+the WebSocket closes (`_reconnectTimers`). `addPlayer` detects the returning
+UUID in `_disconnectedPlayerIds` and immediately syncs the full
+`gameStateUpdate` with `log: 'RECONNECTED'`. If 30 seconds elapse before
+reconnection the slot is permanently removed and `isEmpty` triggers room
+reaping.
+
+Key files: `app/lib/services/game_sync_service.dart`, `server/lib/src/game_room.dart`.
 
 ---
 
@@ -335,6 +381,20 @@ without relying on colour alone.
 LAN mode is the most complex flow in the app because one device is both a
 server and a player.
 
+### 5.1 UDP beacon authentication
+
+The host broadcasts a UDP beacon every 2 seconds so clients can discover the
+room without knowing the host's IP. Any device on the same subnet can receive
+these packets, which creates a spoofing vector: a rogue device could broadcast
+a fake beacon to redirect players to a different host.
+
+**Mitigation:** every beacon payload is signed with
+`HMAC-SHA256(key="GOHACKME_LAN_BEACON_v1", message=payload_without_tag)`.
+The scanner discards any beacon whose tag doesn't match before parsing any
+fields. A device that hasn't reverse-engineered the app binary cannot forge a
+valid tag. (Replay attacks are harmless — the TCP connection always goes to
+the actual UDP sender address, not to an address in the payload.)
+
 ```
 Host device                         Client device
 ───────────────────────────────     ─────────────────────────────────
@@ -362,6 +422,188 @@ On the host device, `LanHostService.sendAction()` bypasses TCP entirely —
 it runs `GameEngine` locally and broadcasts the result. On client devices,
 `LanClientService.sendAction()` writes a JSON line over the TCP socket.
 `LanGameNotifier` does not know or care which one it has.
+
+### 5.1.1 LAN reconnection
+
+If a client's TCP connection drops mid-game, `LanClientService` retries
+`connect()` automatically up to **3 times** (3 s / 6 s / 9 s backoff). The
+host keeps the player's game slot open for **30 seconds** via
+`_reconnectTimers`. On reconnect the host's `_handleJoin` detects the
+returning UUID in `_disconnectedPlayers`, cancels the timer, and sends a
+full `gameStateUpdate(log: 'RECONNECTED')`. After 30 s the slot closes
+permanently and subnets are redistributed.
+
+Pre-game disconnects (lobby) remove the player immediately — no grace window.
+
+---
+
+## 5.2 The Wired (WebRTC) Mode in Detail
+
+"The Wired" mode creates a browser-independent, encrypted peer-to-peer data
+channel between every guest and the host using WebRTC. It does **not** require
+all players to be on the same local network.
+
+### Signaling channel — ntfy.sh
+
+WebRTC peers need to exchange SDP offer/answer blobs once before the P2P
+connection can be established. GoHackMe uses [ntfy.sh](https://ntfy.sh/) as a
+free, anonymous, no-sign-up HTTP pub/sub relay for this handshake. ntfy.sh
+carries **only** the initial SDP negotiation — no game moves are ever sent
+through it.
+
+Topic naming (file: `app/lib/services/wired_relay_service.dart`):
+
+| ntfy.sh topic | Used for |
+|---|---|
+| `ghm-{roomCode}-o` | All guests post their SDP offers here |
+| `ghm-{roomCode}-a-{sessionId}` | Host posts its SDP answer for one specific guest |
+
+SDPs are gzip-compressed then base64url-encoded before being embedded in the
+JSON message. This keeps each relay message well below ntfy.sh's 4 KB free
+tier limit.
+
+**ntfy.sh reliability:** ntfy.sh is a free community service with no uptime
+guarantee. Both `WiredHostService` and `WiredClientService` perform a
+5-second preflight HTTP check (`WiredRelay.checkConnectivity()`) before
+starting their polling loops. If ntfy.sh is unreachable the error stream
+immediately emits `SIGNALING_SERVER_UNAVAILABLE` — no 4-minute silent
+timeout.
+
+**Rate limit note:** the host polls `ghm-{roomCode}-o` every 3 seconds for up
+to 80 attempts (≈ 80 GET requests per session). ntfy.sh's free tier allows
+~60 requests/minute per IP. A single host session stays well within that
+limit; it only becomes a concern if many rooms are hosted simultaneously from
+the same IP (e.g. a relay-abuse scenario).
+
+### Signaling flow — guest-as-offerer
+
+The guest always creates the WebRTC offer. This simplifies multi-guest support
+because the host doesn't need to know in advance how many guests will join.
+
+```
+Host device                               Guest device
+────────────────────────────────────      ─────────────────────────────────────
+WiredHostService.open()
+  │ generates 6-char room code
+  └─► begins polling ghm-{roomCode}-o
+      every 3 s (up to 80 attempts)
+                                          Guest enters room code in UI
+                                          WiredClientService.connectWithCode()
+                                            WiredPeerConnection.createOffer()
+                                              ↳ ICE gathering (STUN, 8 s timeout)
+                                            POST ghm-{roomCode}-o
+                                              {sdp: <compressed>, sid: <uuid>}
+
+Host poller sees new session ID
+  WiredPeerConnection.createAnswer(offer)
+    ↳ ICE gathering (STUN, 8 s timeout)
+  POST ghm-{roomCode}-a-{sessionId}
+    {sdp: <compressed>, sid: <uuid>}
+                                          Guest polls ghm-{roomCode}-a-{sessionId}
+                                          (up to 80 × 3 s)
+                                          WiredPeerConnection.acceptAnswer(answer)
+                                          WebRTC data channel opens ← onOpen fires
+
+Both sides: game proceeds over WebRTC data channel
+ntfy.sh is no longer involved
+```
+
+Duplicate session IDs are rejected by the host via an in-memory
+`_seenSessionIds` set, so retransmitted guest offers are idempotent.
+
+**Room code character set:** room codes are derived from the first 6 hex
+characters of a UUID v4 string, uppercased: `[0-9A-F]` — 16 symbols, giving
+`16^6 = 16,777,216` combinations. With a 50-room server cap the collision
+probability per new room is ≈ 0.0003 %, which is negligible. The hex alphabet
+also avoids the classic 0/O and 1/I ambiguities (hex letters are only A–F).
+
+### NAT traversal — STUN, no TURN
+
+ICE server configuration (`app/lib/services/webrtc_wired_service.dart`):
+
+```dart
+const _kIceServers = [
+  {'urls': 'stun:stun.l.google.com:19302'},
+  {'urls': 'stun:stun1.l.google.com:19302'},
+  {'urls': 'stun:stun.cloudflare.com:3478'},
+];
+```
+
+STUN allows peers behind most home and office routers (full-cone, address-
+restricted, and port-restricted NAT) to discover their public address and
+punch through the NAT. This covers roughly 85–90 % of consumer networks.
+
+**There are no TURN relay servers.** STUN hole-punching fails with
+symmetric NAT — common in corporate environments and carrier-grade NAT
+(CGNAT). When it fails the data channel never opens and the guest times out
+after ~240 s of polling. There is no fallback at present.
+
+Summary:
+
+| Network | Works? |
+|---|---|
+| Same LAN | Yes (use LAN mode instead for reliability) |
+| Home broadband (most routers) | Yes |
+| Mobile hotspot | Usually yes |
+| Corporate / VPN / CGNAT | Often no |
+
+### Peer connection configuration
+
+```dart
+const _kPcConfig = {
+  'iceServers': _kIceServers,
+  'bundlePolicy': 'max-bundle',   // all media/data on one transport
+  'rtcpMuxPolicy': 'require',
+  'sdpSemantics': 'unified-plan',
+};
+```
+
+### Security model
+
+| Concern | Mechanism |
+|---|---|
+| Data confidentiality | DTLS/SRTP — mandatory by WebRTC spec; no plaintext P2P data channel is possible |
+| Signal confidentiality | ntfy.sh only sees compressed, opaque SDP blobs — no game content, no player IDs |
+| Identity spoofing | First `joinRoom` message binds the player ID for that connection (`WiredPeerConnection.tryBindPlayerId`); subsequent messages with a different ID are dropped |
+| Message flooding | 64 KB message size cap; 10 msg/s rate limit per peer — excess closes the connection |
+| SDP replay | Harmless — DTLS keys are ephemeral per-session; an old SDP cannot reopen a channel |
+
+### LAN mode vs Wired mode
+
+| | LAN | Wired |
+|---|---|---|
+| Transport | TCP over local subnet | WebRTC data channel (DTLS/UDP) |
+| Discovery | UDP beacon (same subnet) | 6-char room code shared out-of-band |
+| Internet play | No | Yes (when STUN succeeds) |
+| NAT sensitivity | None | Fails with symmetric NAT |
+| External dependency | None | ntfy.sh for SDP handshake; STUN servers for ICE |
+| Encryption | None (trusted LAN assumed) | DTLS mandatory |
+
+### 5.2.1 Wired reconnection
+
+When a WebRTC data channel drops mid-game, `WiredClientService` performs
+automatic re-signaling through ntfy.sh up to **3 times** (5 s / 10 s / 15 s
+backoff).
+
+```
+Channel closes (onClose)
+  └─► _scheduleWiredReconnect()
+        ├─► attempt 1 → wait 5 s → connectWithCode()
+        │     ↳ new WebRTC offer → ntfy.sh → poll for answer → new channel
+        ├─► attempt 2 → wait 10 s → connectWithCode()
+        ├─► attempt 3 → wait 15 s → connectWithCode()
+        └─► all failed → emit CONNECTION_LOST on errorStream
+```
+
+On the host side, `_onConnectionClosed` opens a **30-second reconnect
+window** (`_reconnectTimers`). It also restarts the offer-listener with a
+10-attempt budget (≈ 30 s) so the guest's new offer is picked up. On
+reconnect, `_handleJoin` detects the returning player ID in
+`_disconnectedPlayers`, cancels the timer, and syncs `gameStateUpdate`.
+
+**Reconnection requires a full new SDP negotiation** — the old WebRTC
+session cannot be resumed. The re-signaling adds 5–30 seconds of
+latency depending on network conditions and which retry fires.
 
 ---
 

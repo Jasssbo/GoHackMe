@@ -24,6 +24,16 @@ class LanClientService implements IGameTransport {
   static const _kPingInterval = Duration(seconds: 5);
   static const _kPingTimeout = Duration(seconds: 15);
 
+  // ── Reconnection state ─────────────────────────────────────────────────
+  InternetAddress? _lastHostAddress;
+  int? _lastTcpPort;
+  String? _lastPlayerId;
+  String? _lastDisplayName;
+  String? _lastRoomCode;
+  bool _disposed = false;
+  int _reconnectAttempts = 0;
+  static const _kMaxReconnectAttempts = 3;
+
   final StreamController<GameState> _stateCtrl =
       StreamController<GameState>.broadcast();
   final StreamController<String> _logCtrl = StreamController<String>.broadcast();
@@ -53,6 +63,17 @@ class LanClientService implements IGameTransport {
     required String displayName,
     required String roomCode,
   }) async {
+    // Store params so _scheduleReconnect() can retry the same connection.
+    _lastHostAddress = hostAddress;
+    _lastTcpPort = tcpPort;
+    _lastPlayerId = playerId;
+    _lastDisplayName = displayName;
+    _lastRoomCode = roomCode;
+
+    // Cancel any running keepalive before re-opening the socket.
+    _pingTimer?.cancel();
+    _pingTimer = null;
+
     // Close any existing socket without touching the stream controllers.
     // The provider always creates a fresh LanClientService before calling
     // connect(), so controllers are already open and subscriptions are already
@@ -70,10 +91,27 @@ class LanClientService implements IGameTransport {
     _socket!.listen(
       _onData,
       onDone: () {
-        _logCtrl.add('DISCONNECTED');
-        _errorCtrl.add('HOST_DISCONNECTED');
+        _socket = null;
+        _pingTimer?.cancel();
+        _pingTimer = null;
+        if (!_disposed) {
+          _logCtrl.add('DISCONNECTED — RECONNECTING...');
+          _scheduleReconnect();
+        } else {
+          _logCtrl.add('DISCONNECTED');
+        }
       },
-      onError: (e) => _errorCtrl.add('TCP_ERROR: $e'),
+      onError: (e) {
+        _socket = null;
+        _pingTimer?.cancel();
+        _pingTimer = null;
+        if (!_disposed) {
+          _logCtrl.add('TCP_ERROR: $e — RECONNECTING...');
+          _scheduleReconnect();
+        } else {
+          _errorCtrl.add('TCP_ERROR: $e');
+        }
+      },
       cancelOnError: false,
     );
 
@@ -99,7 +137,31 @@ class LanClientService implements IGameTransport {
       sendAction(GameMessage.ping());
     });
   }
+  // ── Reconnection ───────────────────────────────────────────────────────────
 
+  void _scheduleReconnect() {
+    if (_disposed || _reconnectAttempts >= _kMaxReconnectAttempts) {
+      _errorCtrl.add('HOST_DISCONNECTED');
+      return;
+    }
+    _reconnectAttempts++;
+    _logCtrl.add('RECONNECT_ATTEMPT: $_reconnectAttempts/$_kMaxReconnectAttempts');
+    Future.delayed(Duration(seconds: _reconnectAttempts * 3), () async {
+      if (_disposed) return;
+      try {
+        await connect(
+          hostAddress: _lastHostAddress!,
+          tcpPort: _lastTcpPort!,
+          playerId: _lastPlayerId!,
+          displayName: _lastDisplayName!,
+          roomCode: _lastRoomCode!,
+        );
+        _reconnectAttempts = 0;
+      } catch (_) {
+        _scheduleReconnect();
+      }
+    });
+  }
   // ── Send ──────────────────────────────────────────────────────────────────
 
   @override
@@ -191,6 +253,7 @@ class LanClientService implements IGameTransport {
 
   @override
   Future<void> dispose() async {
+    _disposed = true;
     _pingTimer?.cancel();
     _pingTimer = null;
     await _socket?.close();

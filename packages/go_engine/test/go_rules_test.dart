@@ -180,7 +180,7 @@ void main() {
           currentBoard,
           const Position(4, 4),
           StoneColor.p1,
-          [historicBoard.hashCode],
+          [historicBoard.zobristHash],
         );
         expect(error, 'KO_VIOLATION');
       });

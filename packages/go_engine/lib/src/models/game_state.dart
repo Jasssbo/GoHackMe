@@ -41,9 +41,10 @@ class GameState {
 
   /// Board hash history (oldest first) used for superko detection.
   ///
-  /// Stores [Board.hashCode] after every completed placement.  Using hashes
-  /// instead of full [Board] snapshots keeps serialised state small while
-  /// preserving the complete position history — no cap needed.
+  /// Stores [Board.zobristHash] (a 62-bit Zobrist hash) after every completed
+  /// placement.  Collision probability is ≈ 1/2^62 per comparison — negligible
+  /// for any real game.  Hashes are never transmitted over the network; they
+  /// stay on the authority device only.
   final List<int> boardHashes;
 
   // Players

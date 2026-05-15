@@ -23,6 +23,7 @@ dependencies:
   web_socket_channel: ^3.0.2
   flutter_webrtc: ^1.0.0
   http: ^1.4.0
+  crypto: ^3.0.6
 
   # Serialisation
   json_annotation: ^4.9.0

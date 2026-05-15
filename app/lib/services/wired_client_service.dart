@@ -28,6 +28,10 @@ class WiredClientService implements IGameTransport {
   late String _displayName;
   late String _roomCode;
 
+  bool _disposed = false;
+  int _reconnectAttempts = 0;
+  static const _kMaxReconnectAttempts = 3;
+
   // ── Streams ───────────────────────────────────────────────────────────────
   final _stateCtrl = StreamController<GameState>.broadcast();
   final _logCtrl = StreamController<String>.broadcast();
@@ -56,6 +60,12 @@ class WiredClientService implements IGameTransport {
     _playerId = playerId;
     _displayName = displayName;
     _roomCode = roomCode;
+
+    _log('CHECKING_RELAY_CONNECTIVITY...');
+    if (!await WiredRelay.checkConnectivity()) {
+      _errorCtrl.add('SIGNALING_SERVER_UNAVAILABLE');
+      return false;
+    }
 
     final sessionId = const Uuid().v4();
     final conn = WiredPeerConnection(sessionId);
@@ -130,8 +140,31 @@ class WiredClientService implements IGameTransport {
   }
 
   void _onChannelClosed() {
-    _log('CONNECTION_LOST');
-    _errorCtrl.add('CONNECTION_LOST');
+    if (!_disposed) {
+      _log('CONNECTION_LOST — RECONNECTING...');
+      _scheduleWiredReconnect();
+    } else {
+      _log('CONNECTION_LOST');
+      _errorCtrl.add('CONNECTION_LOST');
+    }
+  }
+
+  void _scheduleWiredReconnect() {
+    if (_disposed || _reconnectAttempts >= _kMaxReconnectAttempts) {
+      _errorCtrl.add('CONNECTION_LOST');
+      return;
+    }
+    _reconnectAttempts++;
+    _log('WIRED_RECONNECT_ATTEMPT: $_reconnectAttempts/$_kMaxReconnectAttempts');
+    Future.delayed(Duration(seconds: _reconnectAttempts * 5), () async {
+      if (_disposed) return;
+      final success = await connectWithCode(
+        roomCode: _roomCode,
+        playerId: _playerId,
+        displayName: _displayName,
+      );
+      if (success) _reconnectAttempts = 0;
+    });
   }
 
   void _handleJson(String json) {
@@ -182,6 +215,7 @@ class WiredClientService implements IGameTransport {
 
   @override
   Future<void> dispose() async {
+    _disposed = true;
     await _conn?.dispose();
     _conn = null;
 

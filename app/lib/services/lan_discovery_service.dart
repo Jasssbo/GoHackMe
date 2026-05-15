@@ -2,10 +2,26 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+
 /// UDP port used for room beacon broadcasts.
 const int kLanDiscoveryPort = 7778;
 
 const String _kBeaconMagic = 'GOHACKME_LAN:';
+
+// HMAC key baked into the binary.  Prevents devices that haven't reverse-
+// engineered the app from forging valid beacons on the local network.
+// Not a secret against a determined reverse-engineer — the goal is to stop
+// trivial LAN spoofing, not to authenticate peers cryptographically.
+final _kHmacKey = utf8.encode('GOHACKME_LAN_BEACON_v1');
+
+/// Returns the first 8 bytes of HMAC-SHA256(payload) as a lowercase hex string
+/// (16 characters).  Used to tag outgoing beacons and verify incoming ones.
+String _hmacTag(String payload) {
+  final mac = Hmac(sha256, _kHmacKey);
+  final digest = mac.convert(utf8.encode(payload));
+  return digest.bytes.take(8).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+}
 
 // ── LanRoom ────────────────────────────────────────────────────────────────
 
@@ -54,14 +70,23 @@ class LanRoom {
       );
 
   // Beacon payload format (pipe-separated, no spaces):
-  // roomCode|tcpPort|hostName|boardSize|maxPlayers|currentPlayers|gameInProgress
-  String get _beaconPayload =>
-      '$roomCode|$tcpPort|$hostName|$boardSize|$maxPlayers|$currentPlayers|${gameInProgress ? 1 : 0}';
+  // roomCode|tcpPort|hostName|boardSize|maxPlayers|currentPlayers|gameInProgress|hmacTag
+  String get _beaconPayload {
+    final body =
+        '$roomCode|$tcpPort|$hostName|$boardSize|$maxPlayers|$currentPlayers|${gameInProgress ? 1 : 0}';
+    return '$body|${_hmacTag(body)}';
+  }
 
   static LanRoom? tryParse(String payload, InternetAddress sender) {
     try {
       final parts = payload.split('|');
-      if (parts.length < 6) return null;
+      if (parts.length < 8) return null;
+
+      // Verify HMAC tag (last field) before trusting any payload data.
+      final body = parts.take(parts.length - 1).join('|');
+      final tag = parts.last;
+      if (tag != _hmacTag(body)) return null; // discard spoofed beacon
+
       return LanRoom(
         roomCode: parts[0],
         hostAddress: sender,
@@ -71,7 +96,7 @@ class LanRoom {
         maxPlayers: int.parse(parts[4]),
         currentPlayers: int.parse(parts[5]),
         lastSeen: DateTime.now(),
-        gameInProgress: parts.length >= 7 && parts[6] == '1',
+        gameInProgress: parts[6] == '1',
       );
     } catch (_) {
       return null;
