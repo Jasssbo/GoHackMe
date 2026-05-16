@@ -7,6 +7,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/cyberpunk_colors.dart';
+import '../../../services/wired_server_service.dart';
+import '../widgets/globe_widget.dart';
 
 /// Main lobby — four ASCII terminal entries; each one opens a focused
 /// setup dialog before navigating.
@@ -88,9 +90,13 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
         context.push(Routes.wiredHost,
             extra: {'boardSize': size, 'maxPlayers': players});
       },
-      onJoin: () {
+      onJoin: (roomCode) {
         Navigator.of(context, rootNavigator: true).pop();
-        context.push(Routes.wiredJoin);
+        if (roomCode.isNotEmpty) {
+          context.push(Routes.wiredJoin, extra: {'roomCode': roomCode});
+        } else {
+          context.push(Routes.wiredJoin);
+        }
       },
     ));
   }
@@ -214,7 +220,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
               // ── 4 terminal entries ───────────────────────────────
               _TerminalEntry(
                 index: '01',
-                command: 'Ntalk_to_your_navi',
+                command: 'talk_to_your_navi',
                 description: 'ask questions  ·  learn the Wired',
                 accent: CyberpunkColors.amber,
                 onTap: _openNavi,
@@ -606,7 +612,7 @@ class _LanSetupDialogState extends State<_LanSetupDialog> {
 
 class _WiredSetupDialog extends StatefulWidget {
   final void Function(int boardSize, int maxPlayers) onHost;
-  final VoidCallback onJoin;
+  final void Function(String roomCode) onJoin;
   const _WiredSetupDialog({required this.onHost, required this.onJoin});
 
   @override
@@ -617,7 +623,54 @@ class _WiredSetupDialogState extends State<_WiredSetupDialog> {
   int _boardSize = 19;
   int _maxPlayers = 2;
 
+  List<WiredRoomInfo> _rooms = [];
+  Timer? _refreshTimer;
+  LobbyMarker? _selected;
+
   static const _accent = Color(0xFF8B5CF6);
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+    _refreshTimer =
+        Timer.periodic(const Duration(seconds: 5), (_) => _refresh());
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final rooms = await WiredServerService.fetchOpenRooms();
+    if (mounted) {
+      setState(() {
+        _rooms = rooms;
+        // Build markers only for rooms that have geo data.
+        // If a selected room disappeared, clear selection.
+        if (_selected != null &&
+            !rooms.any((r) => r.code == _selected!.code)) {
+          _selected = null;
+        }
+      });
+    }
+  }
+
+  List<LobbyMarker> get _markers => _rooms
+      .where((r) => r.lat != null && r.lon != null)
+      .map((r) => LobbyMarker(
+            lat: r.lat!,
+            lon: r.lon!,
+            code: r.code,
+            boardSize: r.boardSize,
+            playerCount: r.playerCount,
+            maxPlayers: r.maxPlayers,
+            city: r.city ?? '',
+            country: r.country ?? '',
+          ))
+      .toList();
 
   @override
   Widget build(BuildContext context) {
@@ -627,6 +680,65 @@ class _WiredSetupDialogState extends State<_WiredSetupDialog> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // ── Globe ─────────────────────────────────────────────────────
+          SizedBox(
+            height: 260,
+            child: Stack(
+              children: [
+                GlobeWidget(
+                  lobbies: _markers,
+                  onMarkerTap: (m) => setState(() => _selected = m),
+                ),
+                // "no geo lobbies" hint overlay
+                if (_rooms.isNotEmpty && _markers.isEmpty)
+                  const Center(
+                    child: Text(
+                      'NODES FOUND — GEO PENDING...',
+                      style: TextStyle(
+                          color: Color(0xFF00FFCC),
+                          fontSize: 11,
+                          fontFamily: 'monospace'),
+                    ),
+                  ),
+                if (_rooms.isEmpty)
+                  const Center(
+                    child: Text(
+                      'NO_OPEN_NODES_DETECTED',
+                      style: TextStyle(
+                          color: Color(0xFF00FFCC),
+                          fontSize: 11,
+                          fontFamily: 'monospace'),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // ── Selected lobby info card ───────────────────────────────────
+          if (_selected != null)
+            _SelectedLobbyCard(
+              marker: _selected!,
+              onJack: () => widget.onJoin(_selected!.code),
+              accent: _accent,
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Text(
+                _rooms.isEmpty
+                    ? 'SCANNING THE_WIRED...'
+                    : 'TAP A NODE ON THE GLOBE TO JACK_IN',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: _accent.withValues(alpha: 0.7),
+                    fontSize: 10,
+                    fontFamily: 'monospace'),
+              ),
+            ),
+
+          const Divider(color: Color(0xFF1E293B), height: 24),
+
+          // ── Host controls ──────────────────────────────────────────────
           _dialogLabel('NETWORK_SCALE', _accent),
           SegmentedButton<int>(
             segments: const [
@@ -638,7 +750,7 @@ class _WiredSetupDialogState extends State<_WiredSetupDialog> {
             onSelectionChanged: (s) => setState(() => _boardSize = s.first),
             style: _dialogSegStyle(_accent),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           _dialogLabel('ENTITIES', _accent),
           SegmentedButton<int>(
             segments: const [
@@ -650,12 +762,87 @@ class _WiredSetupDialogState extends State<_WiredSetupDialog> {
             onSelectionChanged: (s) => setState(() => _maxPlayers = s.first),
             style: _dialogSegStyle(_accent),
           ),
-          const SizedBox(height: 20),
-          _dialogButton('OPEN_LAYER',
-              _accent, () => widget.onHost(_boardSize, _maxPlayers)),
+          const SizedBox(height: 16),
+          _dialogButton('OPEN_LAYER', _accent,
+              () => widget.onHost(_boardSize, _maxPlayers)),
           const SizedBox(height: 8),
-          _dialogButton('JACK_IN',
-              CyberpunkColors.cyan, widget.onJoin),
+          _dialogButton('JACK_IN (MANUAL)', CyberpunkColors.cyan,
+              () => widget.onJoin('')),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Selected lobby info card ───────────────────────────────────────────────
+
+class _SelectedLobbyCard extends StatelessWidget {
+  final LobbyMarker marker;
+  final VoidCallback onJack;
+  final Color accent;
+
+  const _SelectedLobbyCard({
+    required this.marker,
+    required this.onJack,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final location = [marker.city, marker.country]
+        .where((s) => s.isNotEmpty)
+        .join(', ');
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        border: Border.all(color: accent.withValues(alpha: 0.45)),
+        borderRadius: BorderRadius.circular(6),
+        color: accent.withValues(alpha: 0.08),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'NODE :: ${marker.code}',
+                  style: TextStyle(
+                      color: accent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace'),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${marker.boardSize}×${marker.boardSize}  '
+                  '${marker.playerCount}/${marker.maxPlayers} entities'
+                  '${location.isNotEmpty ? '  |  $location' : ''}',
+                  style: const TextStyle(
+                      color: Color(0xFF94A3B8),
+                      fontSize: 10,
+                      fontFamily: 'monospace'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: onJack,
+            style: TextButton.styleFrom(
+              foregroundColor: CyberpunkColors.cyan,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              side: BorderSide(
+                  color: CyberpunkColors.cyan.withValues(alpha: 0.5)),
+              textStyle: const TextStyle(
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.bold),
+            ),
+            child: const Text('[JACK_IN]'),
+          ),
         ],
       ),
     );

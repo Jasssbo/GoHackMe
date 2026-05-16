@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:go_engine/go_engine.dart';
 import 'package:shelf/shelf.dart';
@@ -6,6 +7,7 @@ import 'package:shelf_web_socket/shelf_web_socket.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'game_room.dart';
+import 'geo_service.dart';
 import 'room_manager.dart';
 
 /// Shelf handler that upgrades HTTP connections to WebSockets and routes
@@ -51,18 +53,25 @@ void _log(String tag, String msg) {
 Handler buildWsHandler(RoomManager roomManager) {
   var activeConnections = 0;
 
-  return webSocketHandler((WebSocketChannel channel, String? protocol) {
-    // Reject the upgrade immediately if we are at capacity.
-    if (activeConnections >= _kMaxConnections) {
-      _log('ws', 'rejected connection — SERVER_FULL ($activeConnections/$_kMaxConnections)');
-      channel.sink.add(
-        GameMessage.error(reason: 'SERVER_FULL').toJsonString(),
-      );
-      channel.sink.close();
-      return;
-    }
-    activeConnections++;
-    _log('ws', 'client connected (active: $activeConnections)');
+  return (Request request) {
+    // Extract client IP before upgrading to WebSocket.
+    final clientIp = extractIp(
+      request.headers,
+      request.context['shelf.io.connection_info'] as HttpConnectionInfo?,
+    );
+
+    return webSocketHandler((WebSocketChannel channel, String? protocol) {
+      // Reject the upgrade immediately if we are at capacity.
+      if (activeConnections >= _kMaxConnections) {
+        _log('ws', 'rejected connection — SERVER_FULL ($activeConnections/$_kMaxConnections)');
+        channel.sink.add(
+          GameMessage.error(reason: 'SERVER_FULL').toJsonString(),
+        );
+        channel.sink.close();
+        return;
+      }
+      activeConnections++;
+      _log('ws', 'client connected (active: $activeConnections) ip=$clientIp');
 
     String? connectedPlayerId;
     String? connectedRoomId;
@@ -189,10 +198,12 @@ Handler buildWsHandler(RoomManager roomManager) {
             return;
           }
 
-          // Sanitise displayName
-          final sanitisedName = displayName.length > 32
-              ? displayName.substring(0, 32)
-              : displayName;
+          // Strip control characters (prevents log injection via \n, \x1b ANSI
+          // codes, etc.) then enforce the 32-character visual length limit.
+          final cleanName =
+              displayName.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), '');
+          final sanitisedName =
+              cleanName.length > 32 ? cleanName.substring(0, 32) : cleanName;
 
           final room = roomManager.getOrCreate(roomId, boardSize: boardSize);
           // Server at max room capacity — reject rather than allocate unbounded rooms.
@@ -223,6 +234,22 @@ Handler buildWsHandler(RoomManager roomManager) {
           connectedPlayerId = playerId;
           connectedRoomId = roomId;
           _log('ws', 'joined: player=$playerId name="$sanitisedName" room=$roomId');
+
+          // If this player is the first to join (becomes the host), kick off
+          // an async IP geolocation so the lobby browser can show a globe pin.
+          if (room.playerCount == 1) {
+            geolocateIp(clientIp).then((geo) {
+              if (geo != null) {
+                roomManager.setRoomGeo(
+                  roomId,
+                  lat: geo.lat,
+                  lon: geo.lon,
+                  city: geo.city,
+                  country: geo.country,
+                );
+              }
+            });
+          }
           return;
         }
 
@@ -267,5 +294,6 @@ Handler buildWsHandler(RoomManager roomManager) {
       onError: (_) => cleanup(),
       cancelOnError: true,
     );
-  });
+    })(request); // invoke the webSocketHandler with the current request
+  }; // close (Request request) lambda
 }

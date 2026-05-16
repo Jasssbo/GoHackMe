@@ -564,10 +564,30 @@ class LanHostService implements IGameTransport {
           return;
         }
         _autoSkipDisconnected();
+        if (_checkLastEntityStanding()) return;
         _resetTurnTimer();
       }
     });
   }
+
+  /// Returns true (and ends the game) if only one entity is still connected.
+  /// Only triggers when the game started with more than one player.
+  bool _checkLastEntityStanding() {
+    if (_state == null) return false;
+    if (_state!.players.length <= 1) return false;
+    final active = _state!.players
+        .where((p) => !_disconnectedPlayers.contains(p.id))
+        .toList();
+    if (active.length != 1) return false;
+    final winner = active.first;
+    _log('LAST_ENTITY_STANDING: ${winner.displayName} wins by forfeit');
+    _broadcastStateUpdate('>> LAST_ENTITY_STANDING :: ${winner.displayName} WINS BY FORFEIT');
+    _broadcastAll(GameMessage(type: MessageType.gameOver, payload: {}));
+    _beacon.stop();
+    _turnTimer?.cancel();
+    return true;
+  }
+
   void _applyResult(ActionResult result) {
     switch (result) {
       case ActionSuccess(:final newState, :final logMessage):

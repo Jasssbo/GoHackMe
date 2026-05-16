@@ -40,6 +40,12 @@ class GameRoom {
   // Configurable – host sets this when creating the room
   int maxPlayers;
 
+  // Host IP geolocation — populated asynchronously after first join.
+  double? hostLat;
+  double? hostLon;
+  String? hostCity;
+  String? hostCountry;
+
   GameRoom({
     required this.id,
     required this.boardSize,
@@ -252,6 +258,14 @@ class GameRoom {
           _broadcastGameOver();
           return;
         }
+        // If only one entity remains connected, award them the win.
+        final activeCount = _players.length - _disconnectedPlayerIds.length;
+        if (activeCount <= 1 && _players.length > 1) {
+          _log('room:$id', 'LAST_ENTITY_STANDING — game ends by forfeit');
+          _broadcastGameOver();
+          _turnTimer?.cancel();
+          return;
+        }
         _resetTurnTimer();
       }
     });
@@ -288,8 +302,22 @@ class GameRoom {
   void _broadcast(GameMessage message) {
     final json = message.toJsonString();
     for (final channel in _connections.values) {
-      channel.sink.add(json);
+      try {
+        channel.sink.add(json);
+      } catch (e) {
+        _log('room:$id', 'broadcast error (stale sink): $e');
+      }
     }
+  }
+
+  /// Cancels all pending timers.  Called by [RoomManager] when the room is reaped.
+  void dispose() {
+    _turnTimer?.cancel();
+    for (final t in _reconnectTimers.values) {
+      t.cancel();
+    }
+    _reconnectTimers.clear();
+    _disconnectedPlayerIds.clear();
   }
 
   void _sendError(String? playerId, String reason) {

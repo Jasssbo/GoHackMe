@@ -31,12 +31,15 @@ class WiredGameScreen extends ConsumerStatefulWidget {
   final bool isHost;
   final int boardSize;
   final int maxPlayers;
+  /// When non-null, the join screen will auto-join this room code immediately.
+  final String? initialRoomCode;
 
   const WiredGameScreen({
     super.key,
     required this.isHost,
     this.boardSize = 19,
     this.maxPlayers = 2,
+    this.initialRoomCode,
   });
 
   @override
@@ -58,6 +61,10 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
     super.initState();
     if (widget.isHost) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _initHost());
+    } else if (widget.initialRoomCode != null &&
+        widget.initialRoomCode!.isNotEmpty) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _onClientJoin(widget.initialRoomCode!));
     }
   }
 

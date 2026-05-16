@@ -17,11 +17,20 @@ class WiredRoomInfo {
   final int boardSize;
   final int playerCount;
   final int maxPlayers;
+  final double? lat;
+  final double? lon;
+  final String? city;
+  final String? country;
+
   const WiredRoomInfo({
     required this.code,
     required this.boardSize,
     required this.playerCount,
     required this.maxPlayers,
+    this.lat,
+    this.lon,
+    this.city,
+    this.country,
   });
 
   factory WiredRoomInfo.fromJson(Map<String, dynamic> j) => WiredRoomInfo(
@@ -29,6 +38,10 @@ class WiredRoomInfo {
         boardSize: j['boardSize'] as int,
         playerCount: j['playerCount'] as int,
         maxPlayers: j['maxPlayers'] as int,
+        lat: (j['lat'] as num?)?.toDouble(),
+        lon: (j['lon'] as num?)?.toDouble(),
+        city: j['city'] as String?,
+        country: j['country'] as String?,
       );
 }
 
@@ -91,18 +104,24 @@ class WiredServerService implements IGameTransport {
 
   Future<void> _openSocket() async {
     final base = AppConfig.wiredServerUrl;
-    // Convert https:// → wss://, http:// → ws://
-    final wsUrl = base
-        .replaceFirst('https://', 'wss://')
-        .replaceFirst('http://', 'ws://');
-    final uri = Uri.tryParse('$wsUrl/ws');
-    if (uri == null) {
+    // Convert http(s):// → ws(s):// using Uri to avoid fragile string replacements.
+    final baseUri = Uri.tryParse(base);
+    if (baseUri == null) {
       _errorCtrl.add('INVALID_SERVER_URL');
       return;
     }
+    final wsScheme = baseUri.scheme == 'https' ? 'wss' : 'ws';
+    final uri = baseUri.replace(scheme: wsScheme, path: '/ws');
 
     _channel = WebSocketChannel.connect(uri);
-    await _channel!.ready;
+    try {
+      await _channel!.ready.timeout(const Duration(seconds: 8));
+    } catch (e) {
+      _errorCtrl.add('CONNECTION_FAILED');
+      await _channel?.sink.close();
+      _channel = null;
+      return;
+    }
 
     _sub = _channel!.stream.listen(
       _handleMessage,

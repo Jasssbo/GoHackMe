@@ -109,7 +109,11 @@ final appRouter = GoRouter(
     GoRoute(
       path: Routes.wiredJoin,
       name: 'wiredJoin',
-      builder: (context, state) => const WiredGameScreen(isHost: false),
+      builder: (context, state) {
+        final extras = state.extra as Map<String, dynamic>?;
+        final roomCode = extras?['roomCode'] as String?;
+        return WiredGameScreen(isHost: false, initialRoomCode: roomCode);
+      },
     ),
     GoRoute(
       path: Routes.navi,

@@ -48,13 +48,33 @@ class RoomManager {
             'boardSize': r.boardSize,
             'playerCount': r.playerCount,
             'maxPlayers': r.maxPlayers,
+            if (r.hostLat != null) 'lat': r.hostLat,
+            if (r.hostLon != null) 'lon': r.hostLon,
+            if (r.hostCity != null && r.hostCity!.isNotEmpty) 'city': r.hostCity,
+            if (r.hostCountry != null && r.hostCountry!.isNotEmpty)
+              'country': r.hostCountry,
           })
       .toList();
+
+  /// Stores the geolocation result for the host of [roomId].
+  void setRoomGeo(String roomId,
+      {required double lat,
+      required double lon,
+      required String city,
+      required String country}) {
+    final room = _rooms[roomId];
+    if (room == null) return;
+    room.hostLat = lat;
+    room.hostLon = lon;
+    room.hostCity = city;
+    room.hostCountry = country;
+  }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   void _reap(String roomId) {
-    _rooms.remove(roomId);
+    final room = _rooms.remove(roomId);
+    room?.dispose(); // cancel pending reconnect + turn timers
     print('[RoomManager] reaped room $roomId (${_rooms.length} remaining)');
   }
 
