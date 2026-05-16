@@ -2,8 +2,8 @@
 ///
 /// Kept separate from the engine's [Player] model to avoid coupling
 /// transport-layer identity concerns to the pure game engine.
-class LanPlayer {
+class ConnectedPlayer {
   final String id;
   final String displayName;
-  const LanPlayer({required this.id, required this.displayName});
+  const ConnectedPlayer({required this.id, required this.displayName});
 }

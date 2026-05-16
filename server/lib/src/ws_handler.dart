@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:go_engine/go_engine.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_web_socket/shelf_web_socket.dart';
@@ -13,6 +15,12 @@ const _kMaxMessageBytes = 4096;
 
 /// Max messages per second per connection before the connection is dropped.
 const _kRateLimitPerSecond = 20;
+
+/// How often the server sends a ping frame to the client.
+const _kPingInterval = Duration(seconds: 30);
+
+/// How many consecutive missed pongs trigger a forced disconnect.
+const _kMaxMissedPongs = 2;
 
 /// UUID v4 pattern – the only format the Flutter client generates.
 final _kUuidPattern = RegExp(
@@ -31,14 +39,59 @@ String? _validatePlayerAndRoom(String playerId, String roomId) {
   return null;
 }
 
+/// Hard cap on concurrent WebSocket connections.
+/// Prevents file-descriptor exhaustion and memory DoS on Render.com free tier.
+const _kMaxConnections = 200;
+
 Handler buildWsHandler(RoomManager roomManager) {
+  var activeConnections = 0;
+
   return webSocketHandler((WebSocketChannel channel, String? protocol) {
+    // Reject the upgrade immediately if we are at capacity.
+    if (activeConnections >= _kMaxConnections) {
+      channel.sink.add(
+        GameMessage.error(reason: 'SERVER_FULL').toJsonString(),
+      );
+      channel.sink.close();
+      return;
+    }
+    activeConnections++;
+
     String? connectedPlayerId;
     String? connectedRoomId;
 
     // Rate limiting state
     var msgCount = 0;
     var windowStart = DateTime.now();
+
+    // ── Proactive keep-alive ping ──────────────────────────────────────────
+    // Detects dead connections (crashed clients that never emit onDone).
+    // Sends a ping every [_kPingInterval]; if [_kMaxMissedPongs] consecutive
+    // pings are unanswered the connection is forcibly closed.
+    var missedPongs = 0;
+    Timer? pingTimer;
+
+    void cleanup() {
+      pingTimer?.cancel();
+      pingTimer = null;
+      activeConnections--;
+      if (connectedRoomId != null && connectedPlayerId != null) {
+        roomManager.getRoom(connectedRoomId!)?.removePlayer(connectedPlayerId!);
+        connectedRoomId = null;
+        connectedPlayerId = null;
+      }
+    }
+
+    pingTimer = Timer.periodic(_kPingInterval, (_) {
+      missedPongs++;
+      if (missedPongs > _kMaxMissedPongs) {
+        print('[ws_handler] no pong from ${connectedPlayerId ?? "unknown"} — closing');
+        cleanup();
+        channel.sink.close();
+        return;
+      }
+      channel.sink.add(GameMessage.ping().toJsonString());
+    });
 
     channel.stream.listen(
       (raw) {
@@ -83,14 +136,27 @@ Handler buildWsHandler(RoomManager roomManager) {
           channel.sink.add(GameMessage.pong().toJsonString());
           return;
         }
+        if (message.type == MessageType.pong) {
+          missedPongs = 0; // client is alive
+          return;
+        }
 
         // ── Join room ──────────────────────────────────────────────────────
         if (message.type == MessageType.joinRoom) {
+          // Prevent a single WebSocket from joining more than one room, which
+          // would leak the player's presence in the first room on disconnect.
+          if (connectedPlayerId != null) {
+            channel.sink.add(
+              GameMessage.error(reason: 'ALREADY_CONNECTED').toJsonString(),
+            );
+            return;
+          }
+
           final playerId = message.playerId;
           final roomId = message.roomId;
           final displayName =
               message.payload['displayName'] as String? ?? 'Unknown';
-          // Clamp to safe ranges (VULN 6)
+          // Clamp numeric fields to safe ranges to prevent oversized allocations.
           final boardSize =
               ((message.payload['boardSize'] as int?) ?? 19).clamp(9, 19);
           final maxPlayers =
@@ -117,14 +183,14 @@ Handler buildWsHandler(RoomManager roomManager) {
               : displayName;
 
           final room = roomManager.getOrCreate(roomId, boardSize: boardSize);
-          // VULN 4: server at max capacity → reject gracefully
+          // Server at max room capacity — reject rather than allocate unbounded rooms.
           if (room == null) {
             channel.sink.add(
               GameMessage.error(reason: 'SERVER_FULL').toJsonString(),
             );
             return;
           }
-          // VULN 2: only set maxPlayers before the game has started
+          // Only accept maxPlayers from the client before the game has started.
           if (!room.isStarted) room.maxPlayers = maxPlayers;
           final error = room.addPlayer(
             Player(id: playerId, displayName: sanitisedName),
@@ -163,24 +229,27 @@ Handler buildWsHandler(RoomManager roomManager) {
           return;
         }
 
-        // VULN 5: override playerId with the server-verified identity,
-        // ignoring whatever the client claims in the message body.
+        // ── Host early-start ───────────────────────────────────────────────
+        if (message.type == MessageType.startGame) {
+          // Only the room host (first player to join) may trigger an early start.
+          final err = room.forceStart(requesterId: connectedPlayerId!);
+          if (err != null) {
+            channel.sink.add(
+              GameMessage.error(
+                reason: err,
+                roomId: connectedRoomId,
+                playerId: connectedPlayerId,
+              ).toJsonString(),
+            );
+          }
+          return;
+        }
+
+        // Use the server-verified identity rather than trusting the client's playerId field.
         room.handleAction(message, verifiedPlayerId: connectedPlayerId!);
       },
-      onDone: () {
-        if (connectedRoomId != null && connectedPlayerId != null) {
-          roomManager
-              .getRoom(connectedRoomId!)
-              ?.removePlayer(connectedPlayerId!);
-        }
-      },
-      onError: (_) {
-        if (connectedRoomId != null && connectedPlayerId != null) {
-          roomManager
-              .getRoom(connectedRoomId!)
-              ?.removePlayer(connectedPlayerId!);
-        }
-      },
+      onDone: cleanup,
+      onError: (_) => cleanup(),
       cancelOnError: true,
     );
   });

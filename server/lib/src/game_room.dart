@@ -18,6 +18,10 @@ class GameRoom {
   final _connections = <String, WebSocketChannel>{}; // playerId → channel
   final _players = <Player>[];
 
+  /// The player who created the room (first to join).
+  /// Only the host may trigger a force-start before the room fills.
+  String? _hostPlayerId;
+
   /// Players that disconnected mid-game and are waiting within the 30-second
   /// reconnect window.  The room stays alive until their timers expire.
   final _disconnectedPlayerIds = <String>{};
@@ -37,6 +41,7 @@ class GameRoom {
   bool get isEmpty => _connections.isEmpty && _reconnectTimers.isEmpty;
   bool get isFull => _players.length >= maxPlayers;
   bool get isStarted => _state != null;
+  int get playerCount => _players.length;
   List<Player> get players => List.unmodifiable(_players);
 
   // ── Join / leave ──────────────────────────────────────────────────────────
@@ -70,6 +75,8 @@ class GameRoom {
 
     _players.add(player);
     _connections[player.id] = channel;
+    // First to join is the room host.
+    _hostPlayerId ??= player.id;
 
     _broadcast(GameMessage(
       type: MessageType.playerJoined,
@@ -80,6 +87,17 @@ class GameRoom {
     // Auto-start when room is full
     if (isFull && !isStarted) _startGame();
 
+    return null;
+  }
+
+  /// Host-triggered early start.  Requires ≥ 2 players.
+  /// Only the room host (first joiner) is authorised to call this.
+  /// Returns an error string on failure, null on success.
+  String? forceStart({required String requesterId}) {
+    if (requesterId != _hostPlayerId) return 'NOT_HOST';
+    if (_state != null) return 'GAME_ALREADY_STARTED';
+    if (_players.length < 2) return 'NOT_ENOUGH_PLAYERS';
+    _startGame();
     return null;
   }
 
@@ -131,7 +149,7 @@ class GameRoom {
 
     switch (message.type) {
       case MessageType.placeStone:
-        // VULN 1: safe int parsing – reject if missing or out of bounds
+        // Reject non-integer or out-of-range coordinates before passing to engine.
         final x = message.payload['x'];
         final y = message.payload['y'];
         if (x is! int || y is! int) {
@@ -144,7 +162,7 @@ class GameRoom {
         }
         result = GameEngine.placeStone(
           _state!,
-          verifiedPlayerId, // VULN 5: use server-verified id
+          verifiedPlayerId, // use server-verified id, not client-supplied
           Position(x, y),
         );
 
@@ -158,8 +176,8 @@ class GameRoom {
         // Enforce server-side attacker id
         final rawAction = Map<String, dynamic>.from(message.payload)
           ..['attackerPlayerId'] = verifiedPlayerId;
-        // VULN-A03: AttackAction.fromJson throws on unknown enum names or
-        // malformed targetPosition — catch to prevent crashing the room stream.
+        // AttackAction.fromJson throws on unknown enum names or malformed
+        // targetPosition — catch to avoid crashing the whole room.
         AttackAction action;
         try {
           action = AttackAction.fromJson(rawAction);

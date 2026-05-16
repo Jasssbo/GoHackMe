@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
 
-import 'package:uuid/uuid.dart';
-
 import 'game_room.dart';
 
 /// Manages all active game rooms.
@@ -18,7 +16,6 @@ class RoomManager {
   static const _kMaxRooms = 50;
 
   final _rooms = HashMap<String, GameRoom>();
-  final _uuid = const Uuid();
 
   // ── Public API ────────────────────────────────────────────────────────────
 
@@ -40,9 +37,19 @@ class RoomManager {
 
   GameRoom? getRoom(String roomId) => _rooms[roomId];
 
-  String generateRoomId() => _uuid.v4().substring(0, 8).toUpperCase();
-
   int get activeRoomCount => _rooms.length;
+
+  /// All rooms that are waiting for players (not yet started, not empty).
+  /// Used by the Wired lobby browser.
+  List<Map<String, dynamic>> get openRooms => _rooms.values
+      .where((r) => !r.isStarted && !r.isEmpty)
+      .map((r) => {
+            'code': r.id,
+            'boardSize': r.boardSize,
+            'playerCount': r.playerCount,
+            'maxPlayers': r.maxPlayers,
+          })
+      .toList();
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 

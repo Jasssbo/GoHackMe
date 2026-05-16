@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import 'package:go_engine/go_engine.dart';
 import 'package:go_router/go_router.dart';
 
@@ -9,7 +10,7 @@ import '../../../core/widgets/glitch_overlay.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/lan_game_provider.dart';
 import '../../../services/lan_discovery_service.dart';
-import '../../../services/lan_player.dart';
+import '../../../services/connected_player.dart';
 import '../widgets/game_layout.dart';
 
 // ── LanGameScreen ─────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ class _LanGameScreenState extends ConsumerState<LanGameScreen> {
 
   Future<void> _init() async {
     final auth = ref.read(authProvider).valueOrNull;
-    final playerId = auth?.playerId ?? 'player_${DateTime.now().millisecondsSinceEpoch}';
+    final playerId = auth?.playerId ?? const Uuid().v4();
     final rawName = auth?.displayName ?? '';
     final displayName = rawName.isNotEmpty ? rawName.toUpperCase() : 'ANONYMOUS';
     final notifier = ref.read(lanGameProvider.notifier);
@@ -215,7 +216,7 @@ class _ErrorPanel extends StatelessWidget {
 class _WaitingPanel extends StatelessWidget {
   final bool isHost;
   final String roomCode;
-  final List<LanPlayer> players;
+  final List<ConnectedPlayer> players;
   final int maxPlayers;
   final List<String> logLines;
   final VoidCallback? onStart;

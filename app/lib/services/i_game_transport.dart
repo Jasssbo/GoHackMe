@@ -1,14 +1,12 @@
 import 'package:go_engine/go_engine.dart';
 
-import 'lan_player.dart';
+import 'connected_player.dart';
 
-/// Abstraction over the two LAN transport implementations (host + client).
+/// Abstraction over all multiplayer transport implementations.
 ///
-/// [LanHostService] and [LanClientService] both implement this interface so
-/// that [LanGameNotifier] can work with either without branching on role.
-///
-/// DIP: high-level policy ([LanGameNotifier]) depends on this abstraction,
-/// not on concrete low-level details (TCP socket, applyHostAction, etc.).
+/// [LanHostService], [LanClientService], and [WiredServerService] all implement
+/// this interface so that game notifiers can work with any transport without
+/// branching on role or network type.
 abstract interface class IGameTransport {
   Stream<GameState> get stateStream;
   Stream<String> get logStream;
@@ -17,7 +15,7 @@ abstract interface class IGameTransport {
   /// Host implementations may return a stream that never emits.
   Stream<String> get errorStream;
 
-  Stream<List<LanPlayer>> get playerListStream;
+  Stream<List<ConnectedPlayer>> get playerListStream;
 
   /// Dispatches a player game-action message.
   ///

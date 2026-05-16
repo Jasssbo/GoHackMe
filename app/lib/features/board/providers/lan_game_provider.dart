@@ -8,7 +8,7 @@ import '../../../services/i_game_transport.dart';
 import '../../../services/lan_discovery_service.dart';
 import '../../../services/lan_host_service.dart';
 import '../../../services/lan_client_service.dart';
-import '../../../services/lan_player.dart';
+import '../../../services/connected_player.dart';
 
 // ── LAN role ───────────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ class LanGameState {
   final List<String> logLines;
   final String localPlayerId;
   final String roomCode;
-  final List<LanPlayer> connectedPlayers; // host waiting room
+  final List<ConnectedPlayer> connectedPlayers; // host waiting room
   final int maxPlayers;
   final String? errorMessage;
 
@@ -63,7 +63,7 @@ class LanGameState {
     List<String>? logLines,
     String? localPlayerId,
     String? roomCode,
-    List<LanPlayer>? connectedPlayers,
+    List<ConnectedPlayer>? connectedPlayers,
     int? maxPlayers,
     String? errorMessage,
   }) =>
@@ -237,7 +237,7 @@ class LanGameNotifier extends Notifier<LanGameState> {
     );
   }
 
-  void _onPlayerList(List<LanPlayer> players) {
+  void _onPlayerList(List<ConnectedPlayer> players) {
     state = state.copyWith(connectedPlayers: players);
   }
 

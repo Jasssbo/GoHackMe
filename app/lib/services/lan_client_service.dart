@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:go_engine/go_engine.dart';
 
 import 'i_game_transport.dart';
-import 'lan_player.dart';
+import 'connected_player.dart';
 
 // ── LanClientService ───────────────────────────────────────────────────────────────
 
@@ -38,10 +38,10 @@ class LanClientService implements IGameTransport {
       StreamController<GameState>.broadcast();
   final StreamController<String> _logCtrl = StreamController<String>.broadcast();
   final StreamController<String> _errorCtrl = StreamController<String>.broadcast();
-  final StreamController<List<LanPlayer>> _playersCtrl =
-      StreamController<List<LanPlayer>>.broadcast();
+  final StreamController<List<ConnectedPlayer>> _playersCtrl =
+      StreamController<List<ConnectedPlayer>>.broadcast();
 
-  final List<LanPlayer> _players = [];
+  final List<ConnectedPlayer> _players = [];
 
   @override
   Stream<GameState> get stateStream => _stateCtrl.stream;
@@ -50,7 +50,7 @@ class LanClientService implements IGameTransport {
   @override
   Stream<String> get errorStream => _errorCtrl.stream;
   @override
-  Stream<List<LanPlayer>> get playerListStream => _playersCtrl.stream;
+  Stream<List<ConnectedPlayer>> get playerListStream => _playersCtrl.stream;
 
   bool get isConnected => _socket != null;
 
@@ -123,7 +123,7 @@ class LanClientService implements IGameTransport {
     ));
 
     // Seed the local player list with ourselves.
-    _players.add(LanPlayer(id: playerId, displayName: displayName));
+    _players.add(ConnectedPlayer(id: playerId, displayName: displayName));
     _playersCtrl.add(List.unmodifiable(_players));
 
     // Start keepalive — send ping every 5 s, error out if host goes silent.
@@ -229,7 +229,7 @@ class LanClientService implements IGameTransport {
           final id = player['id'] as String? ?? '';
           final name = player['displayName'] as String? ?? '?';
           if (id.isNotEmpty && _players.every((p) => p.id != id)) {
-            _players.add(LanPlayer(id: id, displayName: name));
+            _players.add(ConnectedPlayer(id: id, displayName: name));
             _playersCtrl.add(List.unmodifiable(_players));
           }
           _logCtrl.add('PLAYER_JOINED: $name');

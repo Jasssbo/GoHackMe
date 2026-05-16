@@ -38,7 +38,9 @@ enum MessageType {
 
   /// Game has ended; payload contains final scores.
   gameOver,
-
+  /// Host requests the server to start the game before the room fills up
+  /// (minimum 2 players required; server validates).
+  startGame,
   // ── Bidirectional ─────────────────────────────────────────────────────
   ping,
   pong,

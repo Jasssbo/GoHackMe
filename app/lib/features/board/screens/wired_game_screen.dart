@@ -1,28 +1,32 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_engine/go_engine.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/config/app_config.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/cyberpunk_colors.dart';
 import '../../../core/widgets/glitch_overlay.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/wired_game_provider.dart';
-import '../../../services/lan_player.dart';
+import '../../../services/connected_player.dart';
+import '../../../services/wired_server_service.dart';
 import '../widgets/game_layout.dart';
 
-// ── Accent palette for The Wired ─────────────────────────────────────────
+// ── Wired accent aliases ───────────────────────────────────────────────────
+const _kIndigo    = CyberpunkColors.violet;
+const _kIndigoDim = CyberpunkColors.violetDim;
+const _kIndigoBg  = CyberpunkColors.wiredIndigoBg;
 
-const _kIndigo = Color(0xFF8B5CF6);        // vivid indigo
-const _kIndigoBg = Color(0xFF0A0614);      // near-black with indigo cast
+// ── WiredGameScreen ────────────────────────────────────────────────────────
 
-// ── WiredGameScreen ───────────────────────────────────────────────────────
-
-/// Multiplayer game screen for "The Wired" (WebRTC internet P2P) mode.
+/// Internet ("Wired") multiplayer screen.
 ///
-/// [isHost] determines whether this device acts as the game server.
-/// Host: [boardSize] + [maxPlayers] are used to initialise the room.
-/// Client: enter the host's invite code via the UI.
+/// [isHost] = true  → creates a new room on the server, shows lobby panel.
+/// [isHost] = false → shows lobby browser + code-entry panel; joins a room.
 class WiredGameScreen extends ConsumerStatefulWidget {
   final bool isHost;
   final int boardSize;
@@ -52,19 +56,19 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _init());
+    if (widget.isHost) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _initHost());
+    }
   }
 
-  Future<void> _init() async {
-    if (!widget.isHost) return; // clients start on the join screen
-
+  Future<void> _initHost() async {
     final auth = ref.read(authProvider).valueOrNull;
-    final playerId =
-        auth?.playerId ?? 'player_${DateTime.now().millisecondsSinceEpoch}';
+    final playerId = auth?.playerId ?? const Uuid().v4();
     final rawName = auth?.displayName ?? '';
-    final displayName = rawName.isNotEmpty ? rawName.toUpperCase() : 'ANONYMOUS';
+    final displayName =
+        rawName.isNotEmpty ? rawName.toUpperCase() : 'ANONYMOUS';
 
-    ref.read(wiredGameProvider.notifier).openAsHost(
+    await ref.read(wiredGameProvider.notifier).openAsHost(
           playerId: playerId,
           displayName: displayName,
           boardSize: widget.boardSize,
@@ -75,7 +79,6 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
   @override
   Widget build(BuildContext context) {
     final ws = ref.watch(wiredGameProvider);
-
     return Scaffold(
       backgroundColor: _kIndigoBg,
       body: GlitchOverlay(
@@ -88,41 +91,36 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
   Widget _buildBody(BuildContext context, WiredGameState ws) {
     switch (ws.status) {
       case WiredStatus.idle:
+        // Host: brief flash before _initHost fires.
+        // Client: never reaches idle — goes straight to lobby browser.
         return widget.isHost
-            ? const _BootScreen()
-            : _JoinEntryScreen(
-                onSubmit: _onClientJoin,
+            ? const _Spinner(label: 'INITIALISING...')
+            : _LobbyBrowserScreen(
+                onJoin: _onClientJoin,
                 onBack: () => _leave(context),
               );
 
       case WiredStatus.connecting:
-        return const _WiredLoadingScreen(label: 'CONNECTING_TO_RELAY...');
+        return const _Spinner(label: 'CONNECTING_TO_SERVER...');
 
       case WiredStatus.waiting:
-        // Host: lobby panel with relay code + player list
-        // Client: spinner waiting for channel to open
         return ws.role == WiredRole.host
-            ? _HostWaitingPanel(
+            ? _HostLobbyPanel(
                 roomCode: ws.roomCode,
                 players: ws.connectedPlayers,
                 maxPlayers: ws.maxPlayers,
                 logLines: ws.logLines,
-                onStart: ws.connectedPlayers.length >= 2
-                    ? () => ref.read(wiredGameProvider.notifier).startGame()
-                    : null,
+                canStart: ws.connectedPlayers.length >= 2,
+                onStart: () =>
+                    ref.read(wiredGameProvider.notifier).startGame(),
                 onBack: () => _leave(context),
               )
-            : _ClientWaitingPanel(
+            : _GuestWaitingPanel(
+                roomCode: ws.roomCode,
+                players: ws.connectedPlayers,
                 logLines: ws.logLines,
                 onBack: () => _leave(context),
               );
-
-      case WiredStatus.over:
-        return _GameOverPanel(
-          state: ws.gameState!,
-          logLines: ws.logLines,
-          onBack: () => _leave(context),
-        );
 
       case WiredStatus.playing:
         final gs = ws.gameState!;
@@ -145,9 +143,16 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
           },
         );
 
+      case WiredStatus.over:
+        return _GameOverPanel(
+          state: ws.gameState!,
+          logLines: ws.logLines,
+          onBack: () => _leave(context),
+        );
+
       case WiredStatus.error:
-        return _ErrorScreen(
-          message: ws.errorMessage ?? 'UNKNOWN_ERROR',
+        return _ErrorPanel(
+          message: _friendlyError(ws.errorMessage),
           onBack: () => _leave(context),
         );
     }
@@ -155,10 +160,10 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
 
   Future<void> _onClientJoin(String code) async {
     final auth = ref.read(authProvider).valueOrNull;
-    final playerId =
-        auth?.playerId ?? 'player_${DateTime.now().millisecondsSinceEpoch}';
+    final playerId = auth?.playerId ?? const Uuid().v4();
     final rawName = auth?.displayName ?? '';
-    final displayName = rawName.isNotEmpty ? rawName.toUpperCase() : 'ANONYMOUS';
+    final displayName =
+        rawName.isNotEmpty ? rawName.toUpperCase() : 'ANONYMOUS';
 
     await ref.read(wiredGameProvider.notifier).joinWithCode(
           roomCode: code.trim().toUpperCase(),
@@ -173,245 +178,350 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
   }
 }
 
-// ── _BootScreen ────────────────────────────────────────────────────────────
+// ── _LobbyBrowserScreen ────────────────────────────────────────────────────
 
-class _BootScreen extends StatelessWidget {
-  const _BootScreen();
-  @override
-  Widget build(BuildContext context) => const Center(
-        child: Text(
-          'ʕ•ᴥ•ʔ',
-          style: TextStyle(
-            color: _kIndigo,
-            fontSize: 28,
-            fontFamily: 'monospace',
-          ),
-        ),
-      );
-}
-
-// ── _WiredLoadingScreen ────────────────────────────────────────────────────
-
-class _WiredLoadingScreen extends StatelessWidget {
-  final String label;
-  const _WiredLoadingScreen({required this.label});
-
-  @override
-  Widget build(BuildContext context) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                  color: _kIndigo, strokeWidth: 1.5),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              label,
-              style: const TextStyle(
-                color: _kIndigo,
-                fontSize: 10,
-                letterSpacing: 2,
-                fontFamily: 'monospace',
-              ),
-            ),
-          ],
-        ),
-      );
-}
-
-// ── _ErrorScreen ───────────────────────────────────────────────────────────
-
-class _ErrorScreen extends StatelessWidget {
-  final String message;
+/// Guest join screen: live-refreshing room list + manual code entry.
+class _LobbyBrowserScreen extends StatefulWidget {
+  final Future<void> Function(String code) onJoin;
   final VoidCallback onBack;
-  const _ErrorScreen({required this.message, required this.onBack});
+  const _LobbyBrowserScreen({required this.onJoin, required this.onBack});
 
   @override
-  Widget build(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'UPLINK_FAILED',
-                style: TextStyle(
-                  color: CyberpunkColors.error,
-                  fontSize: 16,
-                  letterSpacing: 3,
-                  fontFamily: 'monospace',
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                message,
-                style: const TextStyle(
-                  color: CyberpunkColors.textSecondary,
-                  fontSize: 10,
-                  fontFamily: 'monospace',
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: onBack,
-                child: const Text('< BACK_TO_LOBBY'),
-              ),
-            ],
-          ),
-        ),
-      );
+  State<_LobbyBrowserScreen> createState() => _LobbyBrowserScreenState();
 }
 
-// ── _JoinEntryScreen ──────────────────────────────────────────────────────
-
-/// Client-side: text field to type the host's 8-char relay code.
-class _JoinEntryScreen extends StatefulWidget {
-  final Future<void> Function(String code) onSubmit;
-  final VoidCallback onBack;
-  const _JoinEntryScreen({required this.onSubmit, required this.onBack});
+class _LobbyBrowserScreenState extends State<_LobbyBrowserScreen> {
+  final _codeCtrl = TextEditingController();
+  List<WiredRoomInfo> _rooms = [];
+  bool _loading = true;
+  bool _joining = false;
+  Timer? _refreshTimer;
 
   @override
-  State<_JoinEntryScreen> createState() => _JoinEntryScreenState();
-}
-
-class _JoinEntryScreenState extends State<_JoinEntryScreen> {
-  final _ctrl = TextEditingController();
-  bool _busy = false;
+  void initState() {
+    super.initState();
+    _refresh();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (mounted) _refresh();
+    });
+  }
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _refreshTimer?.cancel();
+    _codeCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    final code = _ctrl.text.trim();
+  Future<void> _refresh() async {
+    final rooms = await WiredServerService.fetchOpenRooms();
+    if (mounted) setState(() { _rooms = rooms; _loading = false; });
+  }
+
+  Future<void> _join(String code) async {
     if (code.isEmpty) return;
-    setState(() => _busy = true);
-    await widget.onSubmit(code);
-    if (mounted) setState(() => _busy = false);
+    setState(() { _joining = true; });
+    await widget.onJoin(code);
+    if (mounted) setState(() => _joining = false);
   }
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '// JOIN_THE_WIRED',
-              style: TextStyle(
-                color: _kIndigo,
-                fontSize: 18,
-                letterSpacing: 3,
-                fontWeight: FontWeight.w700,
-                fontFamily: 'monospace',
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Enter the 6-character ROOM_CODE from the host.',
-              style: TextStyle(
-                color: CyberpunkColors.textSecondary,
-                fontSize: 9,
-                fontFamily: 'monospace',
-                height: 1.7,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Container(
-              decoration: BoxDecoration(
-                border: Border.all(
-                    color: _kIndigo.withValues(alpha: 0.40), width: 1),
-                color: _kIndigoBg,
-              ),
-              child: TextField(
-                controller: _ctrl,
-                style: const TextStyle(
-                  color: CyberpunkColors.textPrimary,
-                  fontSize: 18,
-                  fontFamily: 'monospace',
-                  letterSpacing: 4,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Header ─────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: widget.onBack,
+                  icon: const Icon(Icons.arrow_back_ios_new, size: 14),
+                  color: _kIndigo,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                 ),
-                textCapitalization: TextCapitalization.characters,
-                maxLength: 8,
-                decoration: const InputDecoration(
-                  hintText: 'ABCD1234',
-                  hintStyle: TextStyle(
-                    color: CyberpunkColors.textDim,
-                    fontSize: 18,
+                const SizedBox(width: 12),
+                const Text(
+                  '// THE_WIRED — OPEN_CHANNELS',
+                  style: TextStyle(
+                    color: _kIndigo,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 2,
                     fontFamily: 'monospace',
-                    letterSpacing: 4,
                   ),
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                  border: InputBorder.none,
-                  counterText: '',
                 ),
-                maxLines: 1,
+                const Spacer(),
+                if (_loading)
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                        color: _kIndigoDim, strokeWidth: 1.5),
+                  )
+                else
+                  GestureDetector(
+                    onTap: () { setState(() => _loading = true); _refresh(); },
+                    child: const Icon(Icons.refresh,
+                        size: 16, color: _kIndigoDim),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Text(
+              AppConfig.isWiredConfigured
+                  ? 'SCANNING WIRED CHANNELS...'
+                  : 'NO_SERVER_URL — run with --dart-define=WIRED_SERVER_URL=...',
+              style: TextStyle(
+                color: AppConfig.isWiredConfigured
+                    ? CyberpunkColors.textDim
+                    : CyberpunkColors.error,
+                fontSize: 8,
+                fontFamily: 'monospace',
+                letterSpacing: 1.2,
               ),
             ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _busy ? null : _submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _kIndigo.withValues(alpha: 0.15),
-                  foregroundColor: _kIndigo,
-                  side: const BorderSide(color: _kIndigo),
-                ),
-                child: _busy
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                            color: _kIndigo, strokeWidth: 1.5),
-                      )
-                    : const Text('CONNECT'),
-              ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: Container(height: 1,
+                color: _kIndigo.withValues(alpha: 0.18)),
+          ),
+
+          // ── Room list ──────────────────────────────────────────────────
+          Expanded(
+            child: _rooms.isEmpty && !_loading
+                ? Center(
+                    child: Text(
+                      'NO_OPEN_CHANNELS_FOUND\nBe the first to host.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: CyberpunkColors.textDim,
+                        fontSize: 10,
+                        fontFamily: 'monospace',
+                        height: 1.9,
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 4),
+                    itemCount: _rooms.length,
+                    separatorBuilder: (_, __) => Container(
+                      height: 1,
+                      color: _kIndigo.withValues(alpha: 0.10),
+                    ),
+                    itemBuilder: (_, i) => _RoomRow(
+                      room: _rooms[i],
+                      onJoin: _joining ? null : () => _join(_rooms[i].code),
+                    ),
+                  ),
+          ),
+
+          // ── Manual code entry ──────────────────────────────────────────
+          Container(
+            margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              border: Border.all(color: _kIndigo.withValues(alpha: 0.28)),
+              color: _kIndigoBg,
             ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: widget.onBack,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: CyberpunkColors.textDim,
-                  side: BorderSide(
-                      color: CyberpunkColors.textDim.withValues(alpha: 0.4)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'MANUAL UPLINK — enter ROOM_CODE',
+                  style: TextStyle(
+                    color: _kIndigoDim,
+                    fontSize: 8,
+                    fontFamily: 'monospace',
+                    letterSpacing: 1.5,
+                  ),
                 ),
-                child: const Text('ABORT'),
-              ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _codeCtrl,
+                        style: const TextStyle(
+                          color: CyberpunkColors.textPrimary,
+                          fontSize: 18,
+                          fontFamily: 'monospace',
+                          letterSpacing: 4,
+                        ),
+                        textCapitalization: TextCapitalization.characters,
+                        maxLength: 8,
+                        decoration: InputDecoration(
+                          counterText: '',
+                          hintText: 'ABCD12',
+                          hintStyle: TextStyle(
+                            color: CyberpunkColors.textDim,
+                            fontSize: 18,
+                            fontFamily: 'monospace',
+                            letterSpacing: 4,
+                          ),
+                          border: InputBorder.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    _joining
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                color: _kIndigo, strokeWidth: 1.5),
+                          )
+                        : TextButton(
+                            onPressed: () =>
+                                _join(_codeCtrl.text.trim().toUpperCase()),
+                            style: TextButton.styleFrom(
+                              foregroundColor: _kIndigoBg,
+                              backgroundColor: _kIndigo,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 10),
+                            ),
+                            child: const Text(
+                              'CONNECT',
+                              style: TextStyle(
+                                  fontSize: 10, fontFamily: 'monospace'),
+                            ),
+                          ),
+                  ],
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-// ── _HostWaitingPanel ─────────────────────────────────────────────────────
+// ── _RoomRow ───────────────────────────────────────────────────────────────
 
-class _HostWaitingPanel extends StatelessWidget {
+class _RoomRow extends StatelessWidget {
+  final WiredRoomInfo room;
+  final VoidCallback? onJoin;
+  const _RoomRow({required this.room, required this.onJoin});
+
+  @override
+  Widget build(BuildContext context) {
+    final full = room.playerCount >= room.maxPlayers;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          // Code
+          Text(
+            room.code,
+            style: const TextStyle(
+              color: CyberpunkColors.textPrimary,
+              fontSize: 14,
+              fontFamily: 'monospace',
+              letterSpacing: 2,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Board size tag
+          _Tag('${room.boardSize}×${room.boardSize}', CyberpunkColors.cyanDim),
+          const SizedBox(width: 8),
+          // Player pips
+          Row(
+            children: List.generate(room.maxPlayers, (i) => Padding(
+              padding: const EdgeInsets.only(right: 3),
+              child: Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: i < room.playerCount
+                      ? _kIndigo
+                      : _kIndigo.withValues(alpha: 0.22),
+                ),
+              ),
+            )),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '${room.playerCount}/${room.maxPlayers}',
+            style: TextStyle(
+              color: full ? CyberpunkColors.error : CyberpunkColors.textSecondary,
+              fontSize: 9,
+              fontFamily: 'monospace',
+            ),
+          ),
+          const Spacer(),
+          if (!full)
+            TextButton(
+              onPressed: onJoin,
+              style: TextButton.styleFrom(
+                foregroundColor: _kIndigoBg,
+                backgroundColor: onJoin != null ? _kIndigo : _kIndigoDim,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text('JOIN',
+                  style: TextStyle(fontSize: 9, fontFamily: 'monospace')),
+            )
+          else
+            _Tag('FULL', CyberpunkColors.error),
+        ],
+      ),
+    );
+  }
+}
+
+class _Tag extends StatelessWidget {
+  final String text;
+  final Color color;
+  const _Tag(this.text, this.color);
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+              color: color,
+              fontSize: 8,
+              fontFamily: 'monospace',
+              letterSpacing: 1),
+        ),
+      );
+}
+
+// ── _HostLobbyPanel ────────────────────────────────────────────────────────
+
+class _HostLobbyPanel extends StatelessWidget {
   final String roomCode;
-  final List<LanPlayer> players;
+  final List<ConnectedPlayer> players;
   final int maxPlayers;
   final List<String> logLines;
-  final VoidCallback? onStart;
+  final bool canStart;
+  final VoidCallback onStart;
   final VoidCallback onBack;
 
-  const _HostWaitingPanel({
+  const _HostLobbyPanel({
     required this.roomCode,
     required this.players,
     required this.maxPlayers,
     required this.logLines,
+    required this.canStart,
     required this.onStart,
     required this.onBack,
   });
@@ -424,134 +534,131 @@ class _HostWaitingPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Back
+            GestureDetector(
+              onTap: onBack,
+              child: Row(children: [
+                const Icon(Icons.arrow_back_ios_new,
+                    size: 12, color: _kIndigoDim),
+                const SizedBox(width: 6),
+                Text('BACK',
+                    style: TextStyle(
+                        color: _kIndigoDim,
+                        fontSize: 9,
+                        fontFamily: 'monospace')),
+              ]),
+            ),
+            const SizedBox(height: 24),
             const Text(
-              '// THE_WIRED — HOST',
+              '// HOST_LOBBY',
               style: TextStyle(
-                color: _kIndigo,
-                fontSize: 16,
-                letterSpacing: 3,
-                fontWeight: FontWeight.w700,
-                fontFamily: 'monospace',
+                  color: _kIndigo,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 3,
+                  fontFamily: 'monospace'),
+            ),
+            const SizedBox(height: 20),
+            // Room code — big and copy-friendly
+            const Text('ROOM_CODE',
+                style: TextStyle(
+                    color: CyberpunkColors.textDim,
+                    fontSize: 8,
+                    letterSpacing: 2,
+                    fontFamily: 'monospace')),
+            const SizedBox(height: 6),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(
+                  border: Border.all(
+                      color: _kIndigo.withValues(alpha: 0.55), width: 1.5)),
+              child: Text(
+                roomCode,
+                style: const TextStyle(
+                  color: CyberpunkColors.textPrimary,
+                  fontSize: 32,
+                  fontFamily: 'monospace',
+                  letterSpacing: 8,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
-              'ROOM:$roomCode',
-              style: const TextStyle(
-                color: CyberpunkColors.amber,
-                fontSize: 14,
-                letterSpacing: 4,
-                fontFamily: 'monospace',
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'share this code with all players',
+              'Share this code with other players.',
               style: TextStyle(
-                color: CyberpunkColors.textDim,
-                fontSize: 8,
-                letterSpacing: 1.5,
-                fontFamily: 'monospace',
-              ),
+                  color: CyberpunkColors.textDim,
+                  fontSize: 8,
+                  fontFamily: 'monospace'),
             ),
-            const SizedBox(height: 16),
-
+            const SizedBox(height: 24),
             // Player list
             Text(
-              '// WIRED_NODES (${players.length}/$maxPlayers)',
-              style: TextStyle(
-                color: _kIndigo.withValues(alpha: 0.7),
-                fontSize: 10,
-                letterSpacing: 2,
-                fontFamily: 'monospace',
-              ),
+              'PLAYERS  ${players.length}/$maxPlayers',
+              style: const TextStyle(
+                  color: CyberpunkColors.textSecondary,
+                  fontSize: 9,
+                  letterSpacing: 2,
+                  fontFamily: 'monospace'),
             ),
             const SizedBox(height: 8),
             ...players.map(
               (p) => Padding(
                 padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  children: [
-                    const Text('▶ ',
-                        style: TextStyle(color: _kIndigo, fontSize: 10)),
-                    Text(
-                      p.displayName,
+                child: Row(children: [
+                  Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                          color: _kIndigo, shape: BoxShape.circle)),
+                  const SizedBox(width: 8),
+                  Text(p.displayName,
                       style: const TextStyle(
-                        color: CyberpunkColors.textPrimary,
-                        fontSize: 11,
-                        letterSpacing: 1,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                  ],
-                ),
+                          color: CyberpunkColors.textPrimary,
+                          fontSize: 11,
+                          fontFamily: 'monospace')),
+                ]),
               ),
             ),
-
-            if (players.length < maxPlayers) ...[  
-              const SizedBox(height: 12),
-              Text(
-                'waiting for players to connect…',
-                style: TextStyle(
-                  color: _kIndigo.withValues(alpha: 0.6),
-                  fontSize: 8,
-                  letterSpacing: 1.5,
-                  fontFamily: 'monospace',
-                ),
-              ),
-            ],
-
             const Spacer(),
-
-            // Log tail
+            // Log
             if (logLines.isNotEmpty)
-              Container(
-                height: 70,
-                color: const Color(0xFF040210),
-                padding: const EdgeInsets.all(6),
-                child: ListView.builder(
-                  reverse: true,
-                  itemCount: logLines.length,
-                  itemBuilder: (_, i) => Text(
-                    logLines[logLines.length - 1 - i],
-                    style: TextStyle(
-                      color: _kIndigo.withValues(alpha: 0.7),
-                      fontSize: 8,
-                      fontFamily: 'monospace',
-                      height: 1.5,
-                    ),
-                  ),
+              SizedBox(
+                height: 60,
+                child: ListView(
+                  children: logLines
+                      .reversed
+                      .take(6)
+                      .map((l) => Text(l,
+                          style: TextStyle(
+                              color: CyberpunkColors.textDim,
+                              fontSize: 8,
+                              fontFamily: 'monospace')))
+                      .toList(),
                 ),
               ),
             const SizedBox(height: 16),
-
-            if (onStart != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: onStart,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _kIndigo.withValues(alpha: 0.15),
-                      foregroundColor: _kIndigo,
-                      side: const BorderSide(color: _kIndigo),
-                    ),
-                    child: const Text('JACK_INTO_THE_WIRED'),
-                  ),
-                ),
-              ),
+            // Start button
             SizedBox(
               width: double.infinity,
-              child: OutlinedButton(
-                onPressed: onBack,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: CyberpunkColors.textDim,
-                  side: BorderSide(
-                      color: CyberpunkColors.textDim.withValues(alpha: 0.4)),
+              child: ElevatedButton(
+                onPressed: canStart ? onStart : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: canStart ? _kIndigo : _kIndigoDim,
+                  foregroundColor: _kIndigoBg,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: const RoundedRectangleBorder(),
                 ),
-                child: const Text('ABORT'),
+                child: Text(
+                  canStart
+                      ? 'START_GAME  [${players.length}/$maxPlayers]'
+                      : 'WAITING_FOR_PLAYERS...',
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      letterSpacing: 2),
+                ),
               ),
             ),
           ],
@@ -561,14 +668,17 @@ class _HostWaitingPanel extends StatelessWidget {
   }
 }
 
-// ── _ClientWaitingPanel ────────────────────────────────────────────────────
+// ── _GuestWaitingPanel ─────────────────────────────────────────────────────
 
-/// Client-side: connection sent to relay, waiting for channel to open.
-class _ClientWaitingPanel extends StatelessWidget {
+class _GuestWaitingPanel extends StatelessWidget {
+  final String roomCode;
+  final List<ConnectedPlayer> players;
   final List<String> logLines;
   final VoidCallback onBack;
 
-  const _ClientWaitingPanel({
+  const _GuestWaitingPanel({
+    required this.roomCode,
+    required this.players,
     required this.logLines,
     required this.onBack,
   });
@@ -576,82 +686,165 @@ class _ClientWaitingPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: SingleChildScrollView(
+      child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '// THE_WIRED — CONNECTING',
-              style: TextStyle(
-                color: _kIndigo,
-                fontSize: 16,
-                letterSpacing: 3,
-                fontWeight: FontWeight.w700,
-                fontFamily: 'monospace',
-              ),
+            GestureDetector(
+              onTap: onBack,
+              child: Row(children: [
+                const Icon(Icons.arrow_back_ios_new,
+                    size: 12, color: _kIndigoDim),
+                const SizedBox(width: 6),
+                Text('BACK',
+                    style: TextStyle(
+                        color: _kIndigoDim,
+                        fontSize: 9,
+                        fontFamily: 'monospace')),
+              ]),
             ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                const SizedBox(
+            const SizedBox(height: 24),
+            const Text(
+              '// UPLINK_ESTABLISHED',
+              style: TextStyle(
+                  color: _kIndigo,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 3,
+                  fontFamily: 'monospace'),
+            ),
+            const SizedBox(height: 6),
+            Text('ROOM: $roomCode',
+                style: const TextStyle(
+                    color: CyberpunkColors.textSecondary,
+                    fontSize: 10,
+                    letterSpacing: 2,
+                    fontFamily: 'monospace')),
+            const SizedBox(height: 24),
+            const Row(children: [
+              SizedBox(
                   width: 14,
                   height: 14,
                   child: CircularProgressIndicator(
-                      color: _kIndigo, strokeWidth: 1.5),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  'Offer sent — waiting for host to respond…',
+                      color: _kIndigo, strokeWidth: 1.5)),
+              SizedBox(width: 10),
+              Text(
+                'Waiting for host to start...',
+                style: TextStyle(
+                    color: CyberpunkColors.textSecondary,
+                    fontSize: 10,
+                    fontFamily: 'monospace'),
+              ),
+            ]),
+            const SizedBox(height: 20),
+            if (players.isNotEmpty) ...[
+              Text('PLAYERS',
                   style: TextStyle(
-                    color: _kIndigo.withValues(alpha: 0.8),
-                    fontSize: 9,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            // Log tail
-            if (logLines.isNotEmpty)
-              Container(
-                height: 90,
-                color: const Color(0xFF040210),
-                padding: const EdgeInsets.all(6),
-                child: ListView.builder(
-                  reverse: true,
-                  itemCount: logLines.length,
-                  itemBuilder: (_, i) => Text(
-                    logLines[logLines.length - 1 - i],
-                    style: TextStyle(
-                      color: _kIndigo.withValues(alpha: 0.7),
+                      color: CyberpunkColors.textDim,
                       fontSize: 8,
-                      fontFamily: 'monospace',
-                      height: 1.5,
-                    ),
-                  ),
-                ),
-              ),
-
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: onBack,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: CyberpunkColors.textDim,
-                  side: BorderSide(
-                      color: CyberpunkColors.textDim.withValues(alpha: 0.4)),
-                ),
-                child: const Text('ABORT'),
-              ),
-            ),
+                      letterSpacing: 2,
+                      fontFamily: 'monospace')),
+              const SizedBox(height: 8),
+              ...players.map((p) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(children: [
+                      Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                              color: _kIndigo, shape: BoxShape.circle)),
+                      const SizedBox(width: 8),
+                      Text(p.displayName,
+                          style: const TextStyle(
+                              color: CyberpunkColors.textPrimary,
+                              fontSize: 11,
+                              fontFamily: 'monospace')),
+                    ]),
+                  )),
+            ],
           ],
         ),
       ),
     );
   }
+}
+
+// ── _Spinner ───────────────────────────────────────────────────────────────
+
+class _Spinner extends StatelessWidget {
+  final String label;
+  const _Spinner({required this.label});
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                    color: _kIndigo, strokeWidth: 1.5)),
+            const SizedBox(height: 16),
+            Text(label,
+                style: const TextStyle(
+                    color: _kIndigo,
+                    fontSize: 10,
+                    letterSpacing: 2,
+                    fontFamily: 'monospace')),
+          ],
+        ),
+      );
+}
+
+// ── Error code → human-readable message ──────────────────────────────────
+
+String _friendlyError(String? code) => switch (code) {
+      'SERVER_FULL'          => 'Server is at capacity — please try again later',
+      'ROOM_FULL'            => 'This room is already full',
+      'GAME_ALREADY_STARTED' => 'This game has already started',
+      'ROOM_NOT_FOUND'       => 'Room code not found',
+      'ALREADY_IN_ROOM'      => 'You are already in this room',
+      _                      => code ?? 'UPLINK_FAILED',
+    };
+
+// ── _ErrorPanel ────────────────────────────────────────────────────────────
+
+class _ErrorPanel extends StatelessWidget {
+  final String message;
+  final VoidCallback onBack;
+  const _ErrorPanel({required this.message, required this.onBack});
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('UPLINK_FAILED',
+                  style: TextStyle(
+                      color: CyberpunkColors.error,
+                      fontSize: 16,
+                      letterSpacing: 3,
+                      fontFamily: 'monospace')),
+              const SizedBox(height: 12),
+              Text(message,
+                  style: const TextStyle(
+                      color: CyberpunkColors.textSecondary,
+                      fontSize: 10,
+                      fontFamily: 'monospace'),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: onBack,
+                child: const Text('< BACK_TO_LOBBY'),
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
 // ── _GameOverPanel ─────────────────────────────────────────────────────────
@@ -660,82 +853,39 @@ class _GameOverPanel extends StatelessWidget {
   final GameState state;
   final List<String> logLines;
   final VoidCallback onBack;
-
-  const _GameOverPanel({
-    required this.state,
-    required this.logLines,
-    required this.onBack,
-  });
+  const _GameOverPanel(
+      {required this.state, required this.logLines, required this.onBack});
 
   @override
   Widget build(BuildContext context) {
-    final colorScores = Scorer.areaScore(state.board);
-    int scoreOf(Player p) {
-      final idx = state.players.indexOf(p);
-      return colorScores[StoneColor.fromIndex(idx)] ?? 0;
-    }
+    final scores = state.players.map((p) {
+      final count = state.captureCount[p.id] ?? 0;
+      return '${p.displayName}: $count captures';
+    }).toList();
 
-    final sorted = [...state.players]
-      ..sort((a, b) => scoreOf(b).compareTo(scoreOf(a)));
-
-    return SafeArea(
+    return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              '// SIGNAL_TERMINATED',
-              style: TextStyle(
-                color: CyberpunkColors.error,
-                fontSize: 20,
-                letterSpacing: 4,
-                fontWeight: FontWeight.w700,
-                fontFamily: 'monospace',
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              '> FINAL_SCORES:',
-              style: TextStyle(
-                color: _kIndigo.withValues(alpha: 0.8),
-                fontSize: 10,
-                letterSpacing: 2,
-                fontFamily: 'monospace',
-              ),
-            ),
-            const SizedBox(height: 8),
-            ...sorted.asMap().entries.map((e) {
-              final rank = e.key + 1;
-              final p = e.value;
-              final score = scoreOf(p);
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  '#$rank  ${p.displayName.padRight(16)} $score pts',
-                  style: TextStyle(
-                    color: rank == 1
-                        ? CyberpunkColors.amber
-                        : CyberpunkColors.textSecondary,
-                    fontSize: 13,
+            const Text('GAME_OVER',
+                style: TextStyle(
+                    color: _kIndigo,
+                    fontSize: 20,
+                    letterSpacing: 4,
                     fontFamily: 'monospace',
-                    letterSpacing: 1,
-                  ),
-                ),
-              );
-            }),
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: onBack,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _kIndigo.withValues(alpha: 0.15),
-                  foregroundColor: _kIndigo,
-                  side: const BorderSide(color: _kIndigo),
-                ),
-                child: const Text('DISCONNECT'),
-              ),
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 16),
+            ...scores.map((s) => Text(s,
+                style: const TextStyle(
+                    color: CyberpunkColors.textPrimary,
+                    fontSize: 11,
+                    fontFamily: 'monospace'))),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: onBack,
+              child: const Text('< BACK_TO_LOBBY'),
             ),
           ],
         ),

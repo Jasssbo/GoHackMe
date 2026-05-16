@@ -12,6 +12,11 @@ class CyberpunkColors {
   static const surface       = Color(0xFF0B1018); // panel/card background
   static const surfaceAlt    = Color(0xFF101620); // slightly lighter panel
   static const wiredIndigo   = Color(0xFF080A14); // The Wired — protocol void
+  static const wiredIndigoBg = Color(0xFF0A0614); // The Wired screen background
+
+  // ── The Wired violet accent ───────────────────────────────────────────────
+  static const violet        = Color(0xFF8B5CF6); // Lain-inspired signal violet
+  static const violetDim     = Color(0xFF5B3CA6); // dim violet for labels/traces
 
   // ── Primary accents ───────────────────────────────────────────────────────
   static const cyan          = Color(0xFF4DDADA); // bright cold teal

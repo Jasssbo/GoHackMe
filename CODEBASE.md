@@ -182,20 +182,29 @@ Client ──GameMessage──► ws_handler ──route──► GameRoom
 
 ### 3.3 Security model
 
-`ws_handler` applies four guards on every message before it touches game logic:
+`ws_handler` applies six guards on every message before it touches game logic:
 
-1. **Size guard** — messages > 4 096 bytes are rejected. Prevents memory exhaustion.
-2. **Rate limit** — more than 20 messages/second per connection drops the connection.
-3. **UUID format** — `playerId` must match UUID v4 regex. Prevents log injection.
-4. **Server-verified identity** — the server ignores whatever `playerId` is in the
-   message body for actions. It uses the `connectedPlayerId` stored at join time.
+1. **Connection cap** — max 200 concurrent WebSocket connections. New connections
+   beyond the cap are rejected with `SERVER_FULL` before any state is allocated.
+2. **Size guard** — messages > 4 096 bytes are rejected. Prevents memory exhaustion.
+3. **Rate limit** — more than 20 messages/second per connection drops the connection.
+4. **UUID format** — `playerId` must match UUID v4 regex. Prevents log injection.
+5. **Server-verified identity** — the server ignores the `playerId` field in action
+   messages. It uses the `connectedPlayerId` stored at `joinRoom` time.
    A client cannot impersonate another player.
+6. **Single-room enforcement** — a WebSocket session may only call `joinRoom` once.
+   A second `joinRoom` is rejected with `ALREADY_CONNECTED`, preventing presence
+   leaks if a client sends two joins before the first room can be cleaned up.
 
-The `_validatePlayerAndRoom()` helper in `ws_handler.dart` consolidates rules 3 and 4.
+The `_validatePlayerAndRoom()` helper consolidates rules 4 and 5.
+
+**Host-only force-start:** `GameRoom.forceStart({required String requesterId})`
+checks that the caller is the room's host (the first player to join). Any guest
+sending `startGame` receives `NOT_HOST`.
 
 **Room cap:** `getOrCreate()` returns `null` when 50 rooms are already active.
-`ws_handler` detects the `null` return and sends `{type: error, reason: SERVER_FULL}`
-then closes the channel. The client receives the error and can display a message.
+`ws_handler` detects the `null` return and sends `SERVER_FULL`, then closes the
+channel. The client translates this code to a human-readable message in the UI.
 No partial state is written; the room is never added to the map.
 
 ### 3.4 Room lifecycle
@@ -230,8 +239,8 @@ Rooms are also reaped after 2 hours of inactivity regardless of player count.
 ### 3.5 Reconnection — WebSocket mode
 
 When a client's WebSocket drops, `GameSyncService` automatically retries the
-full `connect()` call (including `joinRoom`) up to **3 times** with an
-exponential-style backoff: 3 s, 6 s, 9 s.
+full `connect()` call (including `joinRoom`) up to **5 times** with linear
+backoff: 3 s, 6 s, 9 s, 12 s, 15 s.
 
 ```
 WS drops (onDone / onError)
@@ -302,6 +311,7 @@ no `StatefulWidget` singletons holding game state.
 | `gameStateProvider` | `AsyncNotifier<GameState?>` | WebSocket game (online mode). |
 | `gameLogProvider` | `Notifier<List<String>>` | Last 50 log lines for the HUD terminal. |
 | `lanGameProvider` | `Notifier<LanGameState>` | LAN session state (host or client role). |
+| `wiredGameProvider` | `Notifier<WiredGameState>` | Wired internet session (host or client role). |
 | `localGameProvider` | `Notifier<GameState?>` | Solo game (vs bot). |
 | `localGameLogProvider` | `Notifier<List<String>>` | Solo game log lines. |
 
@@ -324,28 +334,33 @@ in them.
 
 ### 4.4 The transport abstraction
 
-All three multiplayer modes (WebSocket, LAN, WebRTC) have different transport
-mechanisms but the same Riverpod notifier interface. The abstraction is
-`IGameTransport`:
+All multiplayer modes (WebSocket online, LAN, Wired internet) share the same
+Riverpod notifier interface through `IGameTransport`:
 
 ```dart
 abstract interface class IGameTransport {
-  Stream<GameState> get stateStream;
-  Stream<String>    get logStream;
-  Stream<String>    get errorStream;
-  Stream<List<LanPlayer>> get playerListStream;
+  Stream<GameState>       get stateStream;
+  Stream<String>          get logStream;
+  Stream<String>          get errorStream;
+  Stream<List<ConnectedPlayer>> get playerListStream;
   void sendAction(GameMessage msg);
   Future<void> dispose();
 }
 ```
 
-`LanHostService`, `LanClientService`, and `WiredClientService` all implement
-this. `LanGameNotifier` stores a single `IGameTransport? _transport` field
-and never branches on host vs client for actions — it just calls
+`LanHostService`, `LanClientService`, and `WiredServerService` all implement
+this interface. The game notifiers store a single `IGameTransport? _transport`
+field and never branch on host-vs-client for action dispatch — they just call
 `_transport.sendAction(…)`.
 
-The host and client are unified at the notifier level. Only the setup methods
-(`startAsHost` vs `joinRoom`) differ.
+The three modes and their transport implementations:
+
+| Mode | Transport class | Notes |
+|---|---|---|
+| Solo | — (GameEngine called directly) | No network |
+| LAN host | `LanHostService` | Runs embedded TCP server; calls GameEngine locally |
+| LAN client | `LanClientService` | TCP socket to host |
+| Wired (internet) | `WiredServerService` | WebSocket to Render.com server |
 
 ### 4.5 The board renderer
 
@@ -437,173 +452,160 @@ Pre-game disconnects (lobby) remove the player immediately — no grace window.
 
 ---
 
-## 5.2 The Wired (WebRTC) Mode in Detail
+## 5.2 The Wired — Internet Multiplayer
 
-"The Wired" mode creates a browser-independent, encrypted peer-to-peer data
-channel between every guest and the host using WebRTC. It does **not** require
-all players to be on the same local network.
+"The Wired" is **server-authoritative WebSocket internet multiplayer**.
+There is no peer-to-peer, no WebRTC, and no third-party signaling service.
+Every game action is validated by the Dart server before any client sees the result.
 
-### Signaling channel — ntfy.sh
-
-WebRTC peers need to exchange SDP offer/answer blobs once before the P2P
-connection can be established. GoHackMe uses [ntfy.sh](https://ntfy.sh/) as a
-free, anonymous, no-sign-up HTTP pub/sub relay for this handshake. ntfy.sh
-carries **only** the initial SDP negotiation — no game moves are ever sent
-through it.
-
-Topic naming (file: `app/lib/services/wired_relay_service.dart`):
-
-| ntfy.sh topic | Used for |
-|---|---|
-| `ghm-{roomCode}-o` | All guests post their SDP offers here |
-| `ghm-{roomCode}-a-{sessionId}` | Host posts its SDP answer for one specific guest |
-
-SDPs are gzip-compressed then base64url-encoded before being embedded in the
-JSON message. This keeps each relay message well below ntfy.sh's 4 KB free
-tier limit.
-
-**ntfy.sh reliability:** ntfy.sh is a free community service with no uptime
-guarantee. Both `WiredHostService` and `WiredClientService` perform a
-5-second preflight HTTP check (`WiredRelay.checkConnectivity()`) before
-starting their polling loops. If ntfy.sh is unreachable the error stream
-immediately emits `SIGNALING_SERVER_UNAVAILABLE` — no 4-minute silent
-timeout.
-
-**Rate limit note:** the host polls `ghm-{roomCode}-o` every 3 seconds for up
-to 80 attempts (≈ 80 GET requests per session). ntfy.sh's free tier allows
-~60 requests/minute per IP. A single host session stays well within that
-limit; it only becomes a concern if many rooms are hosted simultaneously from
-the same IP (e.g. a relay-abuse scenario).
-
-### Signaling flow — guest-as-offerer
-
-The guest always creates the WebRTC offer. This simplifies multi-guest support
-because the host doesn't need to know in advance how many guests will join.
+### Architecture
 
 ```
-Host device                               Guest device
-────────────────────────────────────      ─────────────────────────────────────
-WiredHostService.open()
-  │ generates 6-char room code
-  └─► begins polling ghm-{roomCode}-o
-      every 3 s (up to 80 attempts)
-                                          Guest enters room code in UI
-                                          WiredClientService.connectWithCode()
-                                            WiredPeerConnection.createOffer()
-                                              ↳ ICE gathering (STUN, 8 s timeout)
-                                            POST ghm-{roomCode}-o
-                                              {sdp: <compressed>, sid: <uuid>}
-
-Host poller sees new session ID
-  WiredPeerConnection.createAnswer(offer)
-    ↳ ICE gathering (STUN, 8 s timeout)
-  POST ghm-{roomCode}-a-{sessionId}
-    {sdp: <compressed>, sid: <uuid>}
-                                          Guest polls ghm-{roomCode}-a-{sessionId}
-                                          (up to 80 × 3 s)
-                                          WiredPeerConnection.acceptAnswer(answer)
-                                          WebRTC data channel opens ← onOpen fires
-
-Both sides: game proceeds over WebRTC data channel
-ntfy.sh is no longer involved
+App (Flutter)  ──WebSocket──►  Dart server (Render.com / Docker)
+                                      │
+                                      ├── validates moves via GameEngine
+                                      ├── broadcasts full GameState to all players
+                                      └── GET /rooms  →  open room list (JSON)
 ```
 
-Duplicate session IDs are rejected by the host via an in-memory
-`_seenSessionIds` set, so retransmitted guest offers are idempotent.
+This is the same architecture already used for LAN mode, just routing through
+the internet instead of a local TCP socket. The client-side transport is
+`WiredServerService` (implements `IGameTransport`), and the server is the
+existing `room_manager.dart` / `game_room.dart` stack — no new server code was
+needed beyond a `/rooms` HTTP endpoint.
 
-**Room code character set:** room codes are derived from the first 6 hex
-characters of a UUID v4 string, uppercased: `[0-9A-F]` — 16 symbols, giving
-`16^6 = 16,777,216` combinations. With a 50-room server cap the collision
-probability per new room is ≈ 0.0003 %, which is negligible. The hex alphabet
-also avoids the classic 0/O and 1/I ambiguities (hex letters are only A–F).
+### Server URL injection
 
-### NAT traversal — STUN, no TURN
+The production server URL is baked into the app at build time:
 
-ICE server configuration (`app/lib/services/webrtc_wired_service.dart`):
+```bash
+flutter run --dart-define=WIRED_SERVER_URL=https://your-app.onrender.com
+```
+
+`AppConfig` reads this value:
 
 ```dart
-const _kIceServers = [
-  {'urls': 'stun:stun.l.google.com:19302'},
-  {'urls': 'stun:stun1.l.google.com:19302'},
-  {'urls': 'stun:stun.cloudflare.com:3478'},
-];
+// app/lib/core/config/app_config.dart
+static const String wiredServerUrl =
+    String.fromEnvironment('WIRED_SERVER_URL', defaultValue: '');
+static bool get isWiredConfigured => wiredServerUrl.isNotEmpty;
 ```
 
-STUN allows peers behind most home and office routers (full-cone, address-
-restricted, and port-restricted NAT) to discover their public address and
-punch through the NAT. This covers roughly 85–90 % of consumer networks.
+If `WIRED_SERVER_URL` is empty, Wired mode is hidden in the lobby.
 
-**There are no TURN relay servers.** STUN hole-punching fails with
-symmetric NAT — common in corporate environments and carrier-grade NAT
-(CGNAT). When it fails the data channel never opens and the guest times out
-after ~240 s of polling. There is no fallback at present.
+### Lobby browser — GET /rooms
 
-Summary:
+The server exposes:
 
-| Network | Works? |
-|---|---|
-| Same LAN | Yes (use LAN mode instead for reliability) |
-| Home broadband (most routers) | Yes |
-| Mobile hotspot | Usually yes |
-| Corporate / VPN / CGNAT | Often no |
-
-### Peer connection configuration
-
-```dart
-const _kPcConfig = {
-  'iceServers': _kIceServers,
-  'bundlePolicy': 'max-bundle',   // all media/data on one transport
-  'rtcpMuxPolicy': 'require',
-  'sdpSemantics': 'unified-plan',
-};
+```
+GET /rooms
+→ 200 OK  Content-Type: application/json
+[
+  {"code": "A3F9C1", "boardSize": 9, "playerCount": 1, "maxPlayers": 2},
+  …
+]
 ```
 
-### Security model
+`WiredServerService.fetchOpenRooms()` calls this endpoint.
+`_LobbyBrowserScreen` polls it every 4 seconds and renders the result
+as a live-refreshing room list. Guests can also enter a code manually.
 
-| Concern | Mechanism |
-|---|---|
-| Data confidentiality | DTLS/SRTP — mandatory by WebRTC spec; no plaintext P2P data channel is possible |
-| Signal confidentiality | ntfy.sh only sees compressed, opaque SDP blobs — no game content, no player IDs |
-| Identity spoofing | First `joinRoom` message binds the player ID for that connection (`WiredPeerConnection.tryBindPlayerId`); subsequent messages with a different ID are dropped |
-| Message flooding | 64 KB message size cap; 10 msg/s rate limit per peer — excess closes the connection |
-| SDP replay | Harmless — DTLS keys are ephemeral per-session; an old SDP cannot reopen a channel |
+### Host flow
+
+```
+Host taps "Host"
+  └─► WiredGameNotifier.openAsHost()
+        │ generates 6-char UUID-derived room code
+        └─► WiredServerService.connect(roomCode, boardSize, maxPlayers)
+              │ opens wss://{server}/ws
+              └─► sends joinRoom message
+                    server creates GameRoom, broadcasts playerJoined
+
+_HostLobbyPanel shows:
+  • the room code in large type
+  • live-updating player list (from playerListStream)
+  • START GAME button (enabled when connectedPlayers.length ≥ 2)
+
+Host taps START GAME
+  └─► WiredGameNotifier.startGame()
+        └─► sends GameMessage(type: MessageType.startGame, …)
+              server: GameRoom.forceStart() → _startGame() → broadcasts gameStateUpdate
+```
+
+The room also auto-starts when it fills to `maxPlayers`.
+
+### Guest flow
+
+```
+Guest taps "Join"
+  └─► _LobbyBrowserScreen fetches GET /rooms every 4 s
+        shows room rows with board size, player count, JOIN button
+
+Guest taps JOIN (or types a code)
+  └─► WiredGameNotifier.joinWithCode(roomCode, playerId, displayName)
+        └─► WiredServerService.connect(roomCode)
+              sends joinRoom → server broadcasts playerJoined to all in room
+        _GuestWaitingPanel shows spinner + player list
+
+Host starts game → server broadcasts gameStateUpdate
+  └─► WiredGameNotifier._onGameState() → status = playing
+        _WiredGameScreenState._buildBody → GameLayout widget
+```
+
+### WiredServerService
+
+`app/lib/services/wired_server_service.dart` implements `IGameTransport`:
+
+```
+connect(playerId, displayName, roomCode, boardSize?, maxPlayers?)
+  └─► WebSocket to wss://{WIRED_SERVER_URL}/ws
+        sends joinRoom
+        begins listening:
+          gameStateUpdate → stateStream
+          playerJoined / playerLeft → playerListStream
+          error → errorStream
+          all → logStream
+
+sendAction(GameMessage) → serialise to JSON → send over WebSocket
+
+static fetchOpenRooms() → GET /rooms → List<WiredRoomInfo>
+
+Auto-reconnect: up to 5 attempts, linear backoff (3 s, 6 s, 9 s, 12 s, 15 s)
+```
+
+### Reconnection
+
+`WiredServerService` schedules a reconnect automatically when the WebSocket
+closes unexpectedly:
+
+```
+WS closes (onDone / onError)
+  └─► _scheduleReconnect()  (up to 5 attempts)
+        attempt 1 → wait  3 s → connect() → send joinRoom
+        attempt 2 → wait  6 s → connect() → send joinRoom
+        attempt 3 → wait  9 s → connect() → send joinRoom
+        attempt 4 → wait 12 s → connect() → send joinRoom
+        attempt 5 → wait 15 s → connect() → send joinRoom
+        all failed → emit SERVER_DISCONNECTED on errorStream
+```
+
+On the server, `GameRoom` holds each player slot open for **30 seconds**
+after their WebSocket closes (`_reconnectTimers`). When the player reconnects
+within 30 s, `addPlayer` detects the returning UUID in `_disconnectedPlayerIds`,
+cancels the timer, and immediately sends a full `gameStateUpdate(log: 'RECONNECTED')`.
 
 ### LAN mode vs Wired mode
 
 | | LAN | Wired |
 |---|---|---|
-| Transport | TCP over local subnet | WebRTC data channel (DTLS/UDP) |
-| Discovery | UDP beacon (same subnet) | 6-char room code shared out-of-band |
-| Internet play | No | Yes (when STUN succeeds) |
-| NAT sensitivity | None | Fails with symmetric NAT |
-| External dependency | None | ntfy.sh for SDP handshake; STUN servers for ICE |
-| Encryption | None (trusted LAN assumed) | DTLS mandatory |
+| Transport | TCP over local subnet | WebSocket over TLS (internet) |
+| Discovery | UDP beacon (same subnet) | `GET /rooms` live lobby browser + 6-char code |
+| Server authority | Host device runs `GameEngine` locally | Dedicated server runs `GameEngine` |
+| External dependency | None | Render.com (or any Docker host) |
+| NAT / firewall sensitivity | None | None — client always initiates outbound WS |
+| Encryption | None (trusted LAN assumed) | TLS (wss://) mandatory on Render.com |
 
-### 5.2.1 Wired reconnection
 
-When a WebRTC data channel drops mid-game, `WiredClientService` performs
-automatic re-signaling through ntfy.sh up to **3 times** (5 s / 10 s / 15 s
-backoff).
-
-```
-Channel closes (onClose)
-  └─► _scheduleWiredReconnect()
-        ├─► attempt 1 → wait 5 s → connectWithCode()
-        │     ↳ new WebRTC offer → ntfy.sh → poll for answer → new channel
-        ├─► attempt 2 → wait 10 s → connectWithCode()
-        ├─► attempt 3 → wait 15 s → connectWithCode()
-        └─► all failed → emit CONNECTION_LOST on errorStream
-```
-
-On the host side, `_onConnectionClosed` opens a **30-second reconnect
-window** (`_reconnectTimers`). It also restarts the offer-listener with a
-10-attempt budget (≈ 30 s) so the guest's new offer is picked up. On
-reconnect, `_handleJoin` detects the returning player ID in
-`_disconnectedPlayers`, cancels the timer, and syncs `gameStateUpdate`.
-
-**Reconnection requires a full new SDP negotiation** — the old WebRTC
-session cannot be resumed. The re-signaling adds 5–30 seconds of
-latency depending on network conditions and which retry fires.
 
 ---
 
@@ -687,6 +689,7 @@ event buses.
 app/lib/
   main.dart                          Entry point. ProviderScope + UiScale setup.
   core/
+    config/app_config.dart           Compile-time config (WIRED_SERVER_URL via --dart-define).
     router/app_router.dart           All GoRouter routes and the Routes constants.
     theme/
       cyberpunk_colors.dart          All colour constants (CyberpunkColors.cyan etc.).
@@ -705,10 +708,13 @@ app/lib/
       providers/
         game_provider.dart           Online (WebSocket) game state + log.
         lan_game_provider.dart       LAN game state (unified host+client).
+        wired_game_provider.dart     Wired internet game state (host or client).
         local_game_provider.dart     Solo vs bot game state + log.
       screens/
         game_screen.dart             Online game screen.
         lan_game_screen.dart         LAN game screen.
+        wired_game_screen.dart       Wired game screen (lobby browser, host panel,
+                                     guest wait, playing, game over).
         local_game_screen.dart       Solo game screen.
         lan_join_screen.dart         LAN discovery scan + room list.
       widgets/
@@ -721,7 +727,8 @@ app/lib/
     lan_host_service.dart            TCP server implementation of IGameTransport.
     lan_discovery_service.dart       UDP beacon broadcaster + scanner.
     game_sync_service.dart           WebSocket client for online mode.
-    wired_client_service.dart        WebRTC client implementation of IGameTransport.
+    wired_server_service.dart        WebSocket client for Wired internet mode.
+                                     Also provides static fetchOpenRooms().
 
 packages/go_engine/lib/
   go_engine.dart                     Barrel export. Import this everywhere.
@@ -740,12 +747,22 @@ packages/go_engine/lib/
     bot_player.dart                  Local AI (beginner + intermediate).
   src/messages/
     game_message.dart                Wire protocol. Shared by app and server.
+                                     MessageType includes: joinRoom, placeStone, pass,
+                                     performAttack, endAttackPhase, startGame,
+                                     gameStateUpdate, playerJoined, playerLeft, error.
 
 server/lib/src/
-  ws_handler.dart                    WebSocket upgrade. Security guards. Routes to room.
+  ws_handler.dart                    WebSocket upgrade. 6 security guards (connection cap,
+                                     size, rate limit, UUID format, server-verified identity,
+                                     single-room enforcement). Routes to GameRoom.
   game_room.dart                     One room. GameState. Fan-out broadcasts.
+                                     Host-only forceStart(); 30 s reconnect grace window.
   room_manager.dart                  Room lifecycle (create, reap, cap).
-  discovery_service.dart             UDP auto-discovery responder.
+                                     openRooms getter for GET /rooms.
+server/bin/
+  server.dart                        Entry point. Mounts WS handler + GET /rooms + CORS.
+
+Dockerfile                           Repo root. Two-stage AOT build for Render.com.
 ```
 
 ---

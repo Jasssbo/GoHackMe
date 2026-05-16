@@ -6,7 +6,7 @@ import 'package:go_engine/go_engine.dart';
 
 import 'i_game_transport.dart';
 import 'lan_discovery_service.dart';
-import 'lan_player.dart';
+import 'connected_player.dart';
 
 // ── _ClientConnection (internal) ───────────────────────────────────────────
 
@@ -55,7 +55,7 @@ class LanHostService implements IGameTransport {
   late String _roomCode;
   late int _boardSize;
   late int _maxPlayers;
-  final List<LanPlayer> _pending = []; // players waiting for game start
+  final List<ConnectedPlayer> _pending = []; // players waiting for game start
 
   /// Player IDs that disconnected after the game started.
   /// They may reconnect; their subnets are zeroed-out on disconnect.
@@ -68,7 +68,7 @@ class LanHostService implements IGameTransport {
   // ── Streams ───────────────────────────────────────────────────────────────
   final _stateCtrl = StreamController<GameState>.broadcast();
   final _logCtrl = StreamController<String>.broadcast();
-  final _playersCtrl = StreamController<List<LanPlayer>>.broadcast();
+  final _playersCtrl = StreamController<List<ConnectedPlayer>>.broadcast();
 
   // Host never emits transport errors to the notifier; exposed via interface
   // with a no-op controller so subscribers receive an orderly close on dispose.
@@ -86,9 +86,9 @@ class LanHostService implements IGameTransport {
   @override
   Stream<String> get errorStream => _errorCtrl.stream;
   @override
-  Stream<List<LanPlayer>> get playerListStream => _playersCtrl.stream;
+  Stream<List<ConnectedPlayer>> get playerListStream => _playersCtrl.stream;
 
-  List<LanPlayer> get players => List.unmodifiable(_pending);
+  List<ConnectedPlayer> get players => List.unmodifiable(_pending);
   GameState? get currentState => _state;
   String get roomCode => _roomCode;
   bool get gameStarted => _state != null;
@@ -112,7 +112,7 @@ class LanHostService implements IGameTransport {
     _server = await ServerSocket.bind(InternetAddress.anyIPv4, 0);
     final port = _server!.port;
 
-    _pending.add(LanPlayer(id: hostPlayerId, displayName: hostDisplayName));
+    _pending.add(ConnectedPlayer(id: hostPlayerId, displayName: hostDisplayName));
     _playersCtrl.add(players);
 
     final room = LanRoom(
@@ -253,7 +253,7 @@ class LanHostService implements IGameTransport {
       final displayName = rawNameMid.length > 32 ? rawNameMid.substring(0, 32) : rawNameMid;
       conn.playerId = pid;
       _clients[pid] = conn;
-      _pending.add(LanPlayer(id: pid, displayName: displayName));
+      _pending.add(ConnectedPlayer(id: pid, displayName: displayName));
       _playersCtrl.add(players);
 
       // Splice the new player into the live GameState.
@@ -316,7 +316,7 @@ class LanHostService implements IGameTransport {
     final displayName = rawName.length > 32 ? rawName.substring(0, 32) : rawName;
     conn.playerId = pid;
     _clients[pid] = conn;
-    _pending.add(LanPlayer(id: pid, displayName: displayName));
+    _pending.add(ConnectedPlayer(id: pid, displayName: displayName));
     _playersCtrl.add(players);
 
     // Send the new client a playerJoined message for every player that was
@@ -484,8 +484,6 @@ class LanHostService implements IGameTransport {
         } catch (e) {
           _log('ATTACK_PARSE_ERROR: $e');
         }
-      case MessageType.endAttackPhase:
-        _applyResult(GameEngine.endAttackPhase(_state!, _hostPlayerId));
       default:
         break;
     }

@@ -5,9 +5,8 @@ import 'package:go_engine/go_engine.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../services/i_game_transport.dart';
-import '../../../services/lan_player.dart';
-import '../../../services/wired_host_service.dart';
-import '../../../services/wired_client_service.dart';
+import '../../../services/connected_player.dart';
+import '../../../services/wired_server_service.dart';
 
 // ── WiredRole ─────────────────────────────────────────────────────────────
 
@@ -18,9 +17,9 @@ enum WiredRole { host, client }
 enum WiredStatus {
   /// Nothing initialised.
   idle,
-  /// Host/client: negotiating WebRTC connection.
+  /// Connecting to the server.
   connecting,
-  /// Waiting for host to start (lobby phase).
+  /// Connected — waiting for enough players / host to start.
   waiting,
   /// Game in progress.
   playing,
@@ -39,12 +38,9 @@ class WiredGameState {
   final List<String> logLines;
   final String localPlayerId;
   final String roomCode;
-  final List<LanPlayer> connectedPlayers;
+  final List<ConnectedPlayer> connectedPlayers;
   final int maxPlayers;
   final String? errorMessage;
-
-  /// True while [WiredGameNotifier.joinWithCode] is in progress.
-  final bool isConnecting;
 
   const WiredGameState({
     this.status = WiredStatus.idle,
@@ -56,7 +52,6 @@ class WiredGameState {
     this.connectedPlayers = const [],
     this.maxPlayers = 2,
     this.errorMessage,
-    this.isConnecting = false,
   });
 
   WiredGameState copyWith({
@@ -66,10 +61,9 @@ class WiredGameState {
     List<String>? logLines,
     String? localPlayerId,
     String? roomCode,
-    List<LanPlayer>? connectedPlayers,
+    List<ConnectedPlayer>? connectedPlayers,
     int? maxPlayers,
     String? errorMessage,
-    bool? isConnecting,
   }) =>
       WiredGameState(
         status: status ?? this.status,
@@ -81,7 +75,6 @@ class WiredGameState {
         connectedPlayers: connectedPlayers ?? this.connectedPlayers,
         maxPlayers: maxPlayers ?? this.maxPlayers,
         errorMessage: errorMessage ?? this.errorMessage,
-        isConnecting: isConnecting ?? this.isConnecting,
       );
 }
 
@@ -91,7 +84,6 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
   static const _maxLogLines = 60;
 
   IGameTransport? _transport;
-  WiredHostService? _hostService;
   final List<StreamSubscription> _subs = [];
 
   @override
@@ -105,56 +97,60 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     return const WiredGameState();
   }
 
-  // ── Host setup ────────────────────────────────────────────────────────────
+  // ── Host ──────────────────────────────────────────────────────────────────
 
-  void openAsHost({
+  /// Opens a new room on the server and waits for other players.
+  Future<void> openAsHost({
     required String playerId,
     required String displayName,
     required int boardSize,
     required int maxPlayers,
-  }) {
+  }) async {
     _reset();
     final roomCode = const Uuid().v4().substring(0, 6).toUpperCase();
-    final svc = WiredHostService();
-    _hostService = svc;
+    final svc = WiredServerService();
     _transport = svc;
 
-    svc.open(
-      roomCode: roomCode,
-      hostPlayerId: playerId,
-      hostDisplayName: displayName,
-      boardSize: boardSize,
-      maxPlayers: maxPlayers,
-    );
-
     state = WiredGameState(
-      status: WiredStatus.waiting,
+      status: WiredStatus.connecting,
       role: WiredRole.host,
       localPlayerId: playerId,
       roomCode: roomCode,
-      connectedPlayers: svc.players,
       maxPlayers: maxPlayers,
     );
 
     _subscribeToTransport();
 
-    // Also subscribe to host-specific status events.
-    _subs.add(svc.statusStream.listen(_onHostStatus));
+    await svc.connect(
+      playerId: playerId,
+      displayName: displayName,
+      roomCode: roomCode,
+      boardSize: boardSize,
+      maxPlayers: maxPlayers,
+    );
+
+    state = state.copyWith(status: WiredStatus.waiting);
   }
 
-  /// Starts the game (host only, ≥ 2 players required).
-  void startGame() => _hostService?.startGame();
+  /// Sends a startGame request to the server (host only; ≥ 2 players required).
+  void startGame() {
+    _transport?.sendAction(GameMessage(
+      type: MessageType.startGame,
+      playerId: state.localPlayerId,
+      roomId: state.roomCode,
+    ));
+  }
 
-  // ── Client setup ──────────────────────────────────────────────────────────
+  // ── Client ────────────────────────────────────────────────────────────────
 
-  /// Connects as a client using the host's 6-char room code.
+  /// Joins an existing room by code.
   Future<void> joinWithCode({
     required String roomCode,
     required String playerId,
     required String displayName,
   }) async {
     _reset();
-    final svc = WiredClientService();
+    final svc = WiredServerService();
     _transport = svc;
 
     state = WiredGameState(
@@ -166,19 +162,11 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
 
     _subscribeToTransport();
 
-    final ok = await svc.connectWithCode(
-      roomCode: roomCode.toUpperCase(),
+    await svc.connect(
       playerId: playerId,
       displayName: displayName,
+      roomCode: roomCode.toUpperCase(),
     );
-
-    if (!ok) {
-      state = state.copyWith(
-        status: WiredStatus.error,
-        errorMessage: 'FAILED_TO_CONNECT — invalid or expired room code',
-      );
-      return;
-    }
 
     state = state.copyWith(status: WiredStatus.waiting);
   }
@@ -222,20 +210,18 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     );
   }
 
-  void _onPlayerList(List<LanPlayer> players) {
+  void _onPlayerList(List<ConnectedPlayer> players) {
     state = state.copyWith(connectedPlayers: players);
   }
 
   void _onError(String msg) {
-    state = state.copyWith(
-      status: WiredStatus.error,
-      errorMessage: msg,
-    );
+    // Ignore non-fatal server errors during gameplay.
+    if (state.status == WiredStatus.playing) {
+      _addLog('SERVER_ERROR: $msg');
+      return;
+    }
+    state = state.copyWith(status: WiredStatus.error, errorMessage: msg);
     _addLog('ERROR: $msg');
-  }
-
-  void _onHostStatus(String event) {
-    // Forward meaningful host-side events as log lines.
   }
 
   void _addLog(String line) {
@@ -250,7 +236,7 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     );
   }
 
-  // ── Reset ─────────────────────────────────────────────────────────────────
+  // ── Reset / leave ─────────────────────────────────────────────────────────
 
   void _reset() {
     for (final s in _subs) {
@@ -259,16 +245,14 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     _subs.clear();
     _transport?.dispose();
     _transport = null;
-    _hostService = null;
     state = const WiredGameState();
   }
 
-  Future<void> leave() async {
-    _reset();
-  }
+  Future<void> leave() async => _reset();
 }
 
 // ── Provider ──────────────────────────────────────────────────────────────
 
 final wiredGameProvider =
     NotifierProvider<WiredGameNotifier, WiredGameState>(WiredGameNotifier.new);
+

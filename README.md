@@ -1,6 +1,7 @@
 # GoHackMe
 
-A cyberpunk/hacking-themed online multiplayer Go variant for mobile and desktop. Players conquers subnets and launch attacks on opponents' territory — all wrapped in a neon-noir aesthetic. Inspired by Lain Serial Experiment and BitBurner "IPvGO" minigame.
+A cyberpunk/hacking-themed multiplayer Go variant for mobile and desktop.
+Players conquer subnets and launch cyberattacks on opponents' territory — wrapped in a neon-noir aesthetic inspired by *Serial Experiments Lain* and BitBurner's IPvGO minigame.
 
 ## Monorepo layout
 
@@ -12,13 +13,48 @@ server/       – Dart Shelf WebSocket game server (Docker-ready)
 scripts/      – Python code-generation helpers
 ```
 
+## Game modes
+
+| Mode | How it works |
+|---|---|
+| **Solo** | Play against the built-in bot locally. No network required. |
+| **LAN** | Host and guests connect over Wi-Fi/Ethernet on the same subnet. Rooms are auto-discovered via UDP beacon. |
+| **The Wired** | Internet multiplayer through a self-hosted Dart WebSocket server (Render.com or any Docker host). Guests browse open rooms or enter a 6-character code. |
+
+## How internet multiplayer works (The Wired)
+
+The Wired mode is **server-authoritative WebSocket multiplayer** — no peer-to-peer, no WebRTC, no third-party signaling service.
+
+```
+App ──WebSocket──► Dart server (Render.com)
+                        │
+                        ├── validates every move via GameEngine
+                        ├── broadcasts GameState to all players in room
+                        └── exposes GET /rooms for the lobby browser
+```
+
+**Flow for a host:**
+1. Taps **Host** → app generates a 6-char room code and opens a WebSocket to the server sending `joinRoom`.
+2. The waiting room shows the code and a live player list.
+3. Once ≥ 2 players have joined the host can tap **START GAME** (or the room auto-starts when full).
+
+**Flow for a guest:**
+1. Taps **Join** → app fetches `GET /rooms` and shows a live-refreshing list of open rooms.
+2. Guest can tap **JOIN** next to any room, or type a code manually.
+3. After joining the guest waits for the host to start.
+
+The server URL is injected at build time:
+```bash
+flutter run -d linux --dart-define=WIRED_SERVER_URL=https://your-app.onrender.com
+```
+
 ## Quick start
 
 ### Prerequisites
-- [Flutter SDK](https://flutter.dev/docs/get-started/install) ≥ 3.5 (includes the Dart SDK)
+- [Flutter SDK](https://flutter.dev/docs/get-started/install) ≥ 3.5
 - Git
-- Android SDK / Android Studio if targeting Android
-- For Linux desktop: `clang`, `cmake`, `ninja-build`, `libgtk-3-dev`
+- Android SDK / Android Studio (if targeting Android)
+- Linux desktop deps:
   ```bash
   sudo apt install clang cmake ninja-build libgtk-3-dev
   ```
@@ -29,53 +65,77 @@ scripts/      – Python code-generation helpers
 git clone https://github.com/Jasssbo/GoHackMe_Flutter.git
 cd GoHackMe_Flutter
 
-# Install dependencies for all packages
 cd app && flutter pub get && cd ..
 cd packages/go_engine && dart pub get && cd ../..
 cd server && dart pub get && cd ..
 ```
 
-> **Note for contributors** — `key.properties` (Android signing) is intentionally not committed.
-> Copy `app/android/key.properties.template` → `app/android/key.properties` and fill in your
-> keystore details if you need to produce a signed release build. Debug builds work without it.
+> **Android signing:** `key.properties` is not committed. Copy
+> `app/android/key.properties.template` → `app/android/key.properties` and fill
+> in your keystore details for signed release builds. Debug builds work without it.
 
-### Run the server (local)
+### Run the server locally
 
 ```bash
 cd server
 dart run bin/server.dart
-# Server listens on ws://0.0.0.0:8080/ws
+# Listens on ws://0.0.0.0:8080/ws  and  http://0.0.0.0:8080/rooms
 ```
 
 ### Run the app
 
 ```bash
 cd app
-flutter run                    # pick a connected device interactively
-flutter run -d linux           # Linux desktop
-flutter run -d android         # Android (device or emulator)
+
+# Without a Wired server (LAN + Solo modes only)
+flutter run -d linux
+
+# With a local Wired server
+flutter run -d linux --dart-define=WIRED_SERVER_URL=http://localhost:8080
+
+# With the production server on Render.com
+flutter run -d android --dart-define=WIRED_SERVER_URL=https://your-app.onrender.com
 ```
+
+## Deploying the server
+
+### Docker (local / any VPS)
+
+```bash
+# From the repo root
+docker build -t gohackme-server .
+docker run -p 8080:8080 gohackme-server
+```
+
+### Render.com (recommended)
+
+1. Push the repo to GitHub.
+2. On Render → **New Web Service** → connect the repository.
+3. Set **Root Directory** to `/` (the Dockerfile is at the repo root).
+4. Environment: Docker. Port: `8080`.
+5. Deploy. Copy the `https://your-app.onrender.com` URL.
+6. Build the app with `--dart-define=WIRED_SERVER_URL=https://your-app.onrender.com`.
+
+The `Dockerfile` at the repo root is a two-stage build:
+- Stage 1: compiles the Dart server AOT binary inside `dart:stable`.
+- Stage 2: copies the binary into a minimal `debian:bookworm-slim` image.
 
 ## Building for release
 
 ```bash
 cd app
 
-# Android App Bundle (Google Play)
-flutter build appbundle --release
-# → build/app/outputs/bundle/release/app-release.aab
+# Android App Bundle
+flutter build appbundle --release --dart-define=WIRED_SERVER_URL=https://...
 
-# Universal APK (sideload / testing)
-flutter build apk --release
-# → build/app/outputs/flutter-apk/app-release.apk
+# Universal APK
+flutter build apk --release --dart-define=WIRED_SERVER_URL=https://...
 
 # Linux desktop
-flutter build linux --release
-# → build/linux/x64/release/bundle/
+flutter build linux --release --dart-define=WIRED_SERVER_URL=https://...
 
 # Linux AppImage (after flutter build linux)
-cd ..
-./scripts/build_appimage.sh --skip-build
+cd .. && ./scripts/build_appimage.sh --skip-build
 # → build/GoHackMe-x86_64.AppImage
 ```
 
@@ -92,22 +152,13 @@ cd app && flutter test
 cd server && dart test
 ```
 
-## Architecture
+## Architecture overview
 
-- **Game engine** (`go_engine`): pure Dart, zero Flutter dependencies. Implements Go rules (superko, area scoring), the attack system, and the shared WebSocket message protocol.
-- **Server** (`gohackme_server`): server-authoritative Shelf server. Validates every move, broadcasts state, manages rooms. Runs in Docker.
-- **App** (`gohackme`): Flutter with Riverpod state management, go_router navigation, and a custom `CyberpunkTheme`.
-
-## Deployment (server)
-
-```bash
-cd server
-docker build -t gohackme-server .
-docker run -p 8080:8080 gohackme-server
-```
-
-See `server/README.md` for full deployment notes including TLS / reverse-proxy setup.
+- **`go_engine`** — pure Dart, zero Flutter deps. Go rules (superko, area scoring), the attack system, and the shared `GameMessage` wire protocol.
+- **`server`** — server-authoritative Shelf/WebSocket server. Validates every move via `GameEngine`, broadcasts full `GameState` snapshots, manages rooms. Runs in Docker.
+- **`app`** — Flutter with Riverpod state management, go_router navigation, and a custom cyberpunk theme.
 
 ## License
 
-[GNU-GPLv3](LICENSE)
+[GNU GPLv3](LICENSE)
+
