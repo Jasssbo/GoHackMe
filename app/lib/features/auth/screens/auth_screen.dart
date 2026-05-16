@@ -92,7 +92,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
     Future.delayed(const Duration(milliseconds: 650), () {
       if (!mounted) return;
       setState(() => _questionVisible = true);
-      _typeQuestion();
+      _typeGuesses();
     });
   }
 
@@ -103,7 +103,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
         setState(() => _questionChars = i);
         if (i == _question.length) {
           Future.delayed(const Duration(milliseconds: 420), () {
-            if (mounted) _typeGuesses();
+            if (mounted) setState(() => _inputReady = true);
           });
         }
       });
@@ -112,7 +112,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
 
   void _typeGuesses() {
     if (_guessNames.isEmpty) {
-      setState(() => _inputReady = true);
+      _typeQuestion();
       return;
     }
     _typeNextGuess(0);
@@ -121,7 +121,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
   void _typeNextGuess(int idx) {
     if (idx >= _guessNames.length) {
       Future.delayed(const Duration(milliseconds: 280), () {
-        if (mounted) setState(() => _inputReady = true);
+        if (mounted) _typeQuestion();
       });
       return;
     }
@@ -204,93 +204,98 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
               if (_questionVisible) ...[
                 const SizedBox(height: 20),
 
-                // "who are you?" typed out
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text(
-                      '> ',
-                      style: TextStyle(
-                        color: CyberpunkColors.cyanDim.withValues(alpha: 0.55),
-                        fontSize: 14,
-                        fontFamily: 'monospace',
-                        letterSpacing: 1,
-                      ),
-                    ),
-                    Text(
-                      _question.substring(0, _questionChars),
-                      style: const TextStyle(
-                        color: CyberpunkColors.textPrimary,
-                        fontSize: 14,
-                        fontFamily: 'monospace',
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                    // Cursor while typing the question
-                    if (_questionChars < _question.length)
-                      AnimatedOpacity(
-                        opacity: _cursorOn ? 1.0 : 0.0,
-                        duration: const Duration(milliseconds: 60),
-                        child: const Text(
-                          '▌',
-                          style: TextStyle(
-                            color: CyberpunkColors.cyan,
-                            fontSize: 14,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-
                 // ── "are you X?" guess lines ───────────────────────────
                 for (int gi = 0; gi < _guessStep; gi++) ...[  
-                  const SizedBox(height: 4),
                   Builder(builder: (context) {
                     final guessText = 'are you ${_guessNames[gi]}?';
                     final visible = _guessChars[gi];
                     final isTyping = visible < guessText.length;
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Text(
-                          '> ',
-                          style: TextStyle(
-                            color: CyberpunkColors.cyanDim.withValues(alpha: 0.55),
-                            fontSize: 14,
-                            fontFamily: 'monospace',
-                            letterSpacing: 1,
-                          ),
-                        ),
-                        Text(
-                          guessText.substring(0, visible),
-                          style: TextStyle(
-                            color: CyberpunkColors.textPrimary
-                                .withValues(alpha: 0.70),
-                            fontSize: 14,
-                            fontFamily: 'monospace',
-                            letterSpacing: 1.0,
-                          ),
-                        ),
-                        if (isTyping)
-                          AnimatedOpacity(
-                            opacity: _cursorOn ? 1.0 : 0.0,
-                            duration: const Duration(milliseconds: 60),
-                            child: const Text(
-                              '▌',
-                              style: TextStyle(
-                                color: CyberpunkColors.cyan,
-                                fontSize: 14,
-                                fontFamily: 'monospace',
-                              ),
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            '> ',
+                            style: TextStyle(
+                              color: CyberpunkColors.cyanDim.withValues(alpha: 0.55),
+                              fontSize: 14,
+                              fontFamily: 'monospace',
+                              letterSpacing: 1,
                             ),
                           ),
-                      ],
+                          Text(
+                            guessText.substring(0, visible),
+                            style: TextStyle(
+                              color: CyberpunkColors.textPrimary
+                                  .withValues(alpha: 0.70),
+                              fontSize: 14,
+                              fontFamily: 'monospace',
+                              letterSpacing: 1.0,
+                            ),
+                          ),
+                          if (isTyping)
+                            AnimatedOpacity(
+                              opacity: _cursorOn ? 1.0 : 0.0,
+                              duration: const Duration(milliseconds: 60),
+                              child: const Text(
+                                '▌',
+                                style: TextStyle(
+                                  color: CyberpunkColors.cyan,
+                                  fontSize: 14,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     );
                   }),
                 ],
+
+                // "who are you?" typed out
+                if (_questionChars > 0)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        '> ',
+                        style: TextStyle(
+                          color: CyberpunkColors.cyanDim.withValues(alpha: 0.55),
+                          fontSize: 14,
+                          fontFamily: 'monospace',
+                          letterSpacing: 1,
+                        ),
+                      ),
+                      Text(
+                        _question.substring(0, _questionChars),
+                        style: const TextStyle(
+                          color: CyberpunkColors.textPrimary,
+                          fontSize: 14,
+                          fontFamily: 'monospace',
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      // Cursor while typing the question
+                      if (_questionChars < _question.length)
+                        AnimatedOpacity(
+                          opacity: _cursorOn ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 60),
+                          child: const Text(
+                            '▌',
+                            style: TextStyle(
+                              color: CyberpunkColors.cyan,
+                              fontSize: 14,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+
+                const SizedBox(height: 4),
 
                 // ── Input line ─────────────────────────────────────────
                 if (_inputReady) ...[

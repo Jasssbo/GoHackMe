@@ -146,7 +146,7 @@ class GameEngine {
 
     final log = captureCount > 0
         ? '>> BACKDOOR :: HIJACK_NODE ($captureCount captured) [+$earned SN]${honeypotLog.isNotEmpty ? ' | $honeypotLog' : ''}'
-        : '>> BACKDOOR :: HIJACK_NODE [+$earned SN]${honeypotLog.isNotEmpty ? ' | $honeypotLog' : ''}';
+        : '>> MITM :: HIJACK_NODE [+$earned SN]${honeypotLog.isNotEmpty ? ' | $honeypotLog' : ''}';
 
     // Clear the backdoor entry for the victim.
     final newBackdoorBy = Map<String, String?>.from(state.backdoorBy)
@@ -379,7 +379,7 @@ class GameEngine {
             .firstWhere((p) => p.id == currentId,
                 orElse: () => Player(id: currentId, displayName: '???'))
             .displayName;
-        logs.add('>> BACKDOOR :: $hijackerName HIJACKED $victimName UPLINK');
+        logs.add('>> MITM :: $hijackerName HIJACKED $victimName UPLINK');
         return ActionSuccess(
           state.copyWith(
             currentPlayerIndex: hijackerIndex,
@@ -462,6 +462,32 @@ class GameEngine {
     // Remove fired honeypot effects from active effects.
     final finalEffects =
         _removeFiredHoneypots(state.activeEffects, state, capturedPositions);
+
+    // BACKDOOR double-stone: if the current player has an active backdoor
+    // effect, consume it and keep their turn instead of advancing.
+    final backdoorActive = finalEffects.any(
+      (e) => e.targetPlayerId == playerId && e.type == AttackType.backdoor,
+    );
+    if (backdoorActive) {
+      final effectsWithoutBackdoor = finalEffects
+          .where((e) =>
+              !(e.targetPlayerId == playerId && e.type == AttackType.backdoor))
+          .toList();
+      final sameTurnState = state.copyWith(
+        board: finalBoard,
+        boardHashes: newHistory,
+        subnets: newSubnets,
+        captureCount: newCaptureCount,
+        consecutivePasses: 0,
+        phase: GamePhase.attack,
+        activeEffects: effectsWithoutBackdoor,
+        // currentPlayerIndex stays the same — second stone this turn
+      );
+      final backdoorLog = log.isNotEmpty
+          ? '$log | >> BACKDOOR :: DOUBLE_STONE_ACTIVE'
+          : '>> BACKDOOR :: DOUBLE_STONE_ACTIVE';
+      return ActionSuccess(sameTurnState, logMessage: backdoorLog);
+    }
 
     // Placement done → immediately advance to next player.
     // Tick incoming player's effects at their turn start.

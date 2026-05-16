@@ -167,7 +167,9 @@ class WiredHostService implements IGameTransport {
     _log('ANSWER_POSTED — waiting for channel sid=${offer.sessionId.substring(0, 8)}');
 
     try {
-      await conn.onOpen.first.timeout(const Duration(seconds: 20));
+      // 45 s: guest needs a poll cycle (≤3 s) + ICE via TURN relay (can be
+      // 20-30 s on high-latency paths) after the answer is posted.
+      await conn.onOpen.first.timeout(const Duration(seconds: 45));
     } catch (_) {
       _log('CHANNEL_OPEN_TIMEOUT sid=${offer.sessionId.substring(0, 8)}');
       _conns.remove(offer.sessionId);

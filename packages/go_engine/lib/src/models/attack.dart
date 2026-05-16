@@ -10,8 +10,11 @@ enum AttackType {
   /// SPYWARE.sh – steal 3 subnets from target (attacker gains, target loses).
   trojan,
 
-  /// BACKDOOR.sh – hijack target's next turn: attacker places their own stone
+  /// MITM.sh – hijack target's next turn: attacker places their own stone
   /// then the target's stone; turn then returns to the attacker.
+  mitm,
+
+  /// BACKDOOR.sh – self-exploit: place 2 stones this turn instead of 1.
   backdoor,
 
   /// PATCH.sh – self-shield: block the next attack received. Stacks per use.
@@ -77,8 +80,14 @@ class AttackCard {
     ),
     AttackCard(
       type: AttackType.backdoor,
-      subnetCost: 12,
+      subnetCost: 6,
       terminalName: 'BACKDOOR.sh',
+      description: 'Self-exploit. Place 2 stones this turn instead of 1.',
+    ),
+    AttackCard(
+      type: AttackType.mitm,
+      subnetCost: 12,
+      terminalName: 'MITM.sh',
       description: 'Hijack next turn. You place the enemy stone; they skip attacks.',
     ),
     AttackCard(

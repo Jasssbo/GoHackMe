@@ -815,6 +815,16 @@ class AttackCardsPanel extends StatelessWidget {
       return;
     }
 
+    // BACKDOOR is self-applied – no target selection needed.
+    if (card.type == AttackType.backdoor) {
+      onAttack(AttackAction(
+        type: card.type,
+        attackerPlayerId: localPlayerId,
+        targetPlayerId: localPlayerId,
+      ));
+      return;
+    }
+
     final targets = players.where((p) => p.id != localPlayerId).toList();
     if (targets.isEmpty) return;
 
@@ -840,7 +850,7 @@ class AttackCardsPanel extends StatelessWidget {
       return;
     }
 
-    // TROJAN and BACKDOOR: require explicit target selection.
+    // TROJAN and MITM: require explicit target selection.
     final Player target;
     if (targets.length == 1) {
       target = targets.first;

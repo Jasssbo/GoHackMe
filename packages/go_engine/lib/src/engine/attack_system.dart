@@ -23,11 +23,12 @@ class AttackSystem {
       return 'NOT_YOUR_TURN';
     }
 
-    // PATCH, KNIGHTS_EYE, and TIMEBOMB are self-applied/broadcast; all other
-    // attacks must target a different player.
+    // PATCH, KNIGHTS_EYE, TIMEBOMB, and BACKDOOR are self-applied/broadcast;
+    // all other attacks must target a different player.
     if (action.type != AttackType.patch &&
         action.type != AttackType.knightseye &&
-        action.type != AttackType.psyche) {
+        action.type != AttackType.psyche &&
+        action.type != AttackType.backdoor) {
       if (action.attackerPlayerId == action.targetPlayerId) {
         return 'CANNOT_ATTACK_SELF';
       }
@@ -75,9 +76,15 @@ class AttackSystem {
         );
         if (suicideError != null) return 'HONEYPOT_INVALID: $suicideError';
 
-      case AttackType.backdoor:
-        // No stacking: reject if target already has an active backdoor.
+      case AttackType.mitm:
+        // No stacking: reject if target already has an active mitm.
         if (state.backdoorBy[action.targetPlayerId] != null) {
+          return 'MITM_ALREADY_ACTIVE';
+        }
+
+      case AttackType.backdoor:
+        // Self-applied: no stacking.
+        if (state.hasEffect(action.attackerPlayerId, AttackType.backdoor)) {
           return 'BACKDOOR_ALREADY_ACTIVE';
         }
 
@@ -136,10 +143,17 @@ class AttackSystem {
           turnsRemaining: 2,
         ));
 
-      case AttackType.backdoor:
-        // Mark the victim as backdoored by the attacker.
+      case AttackType.mitm:
+        // Mark the victim as hijacked by the attacker.
         newBackdoorBy[action.targetPlayerId] = action.attackerPlayerId;
 
+      case AttackType.backdoor:
+        // Self-exploit: attacker earns an extra stone placement this turn.
+        newEffects.add(ActiveEffect(
+          type: AttackType.backdoor,
+          targetPlayerId: action.attackerPlayerId,
+          turnsRemaining: 1,
+        ));
       case AttackType.patch:
         // Increment the attacker's shield stack by 1.
         newPatchShields[action.attackerPlayerId] =

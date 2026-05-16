@@ -4,7 +4,15 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 // ── ICE configuration ─────────────────────────────────────────────────────
 
-/// Public STUN servers used for NAT traversal (no TURN — pure P2P).
+/// STUN + TURN servers for NAT traversal.
+///
+/// STUN alone fails for symmetric NAT (common on mobile / CGNAT networks).
+/// TURN servers relay traffic as a fallback, ensuring connectivity for all
+/// NAT types at the cost of slightly higher latency.
+///
+/// The TURN credentials below are from the community openrelay project
+/// (https://www.metered.ca/tools/openrelay/) — free for low-volume use.
+/// Replace with a self-hosted coturn instance for production.
 const _kIceServers = [
   {
     'urls': [
@@ -14,6 +22,20 @@ const _kIceServers = [
   },
   {
     'urls': ['stun:stun.cloudflare.com:3478'],
+  },
+  // ── TURN relay fallback (symmetric NAT / CGNAT) ───────────────────────
+  {
+    'urls': [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+    ],
+    'username': 'openrelayproject',
+    'credential': 'openrelayproject',
+  },
+  {
+    'urls': ['turn:openrelay.metered.ca:443?transport=tcp'],
+    'username': 'openrelayproject',
+    'credential': 'openrelayproject',
   },
 ];
 
@@ -197,7 +219,9 @@ class WiredPeerConnection {
     };
 
     // Fallback: if already complete or event never fires.
-    Future.delayed(const Duration(seconds: 8), complete);
+    // 15 s gives TURN servers time to complete the authenticated round-trip
+    // needed to gather relay candidates before the SDP is finalised.
+    Future.delayed(const Duration(seconds: 15), complete);
 
     return completer.future;
   }
