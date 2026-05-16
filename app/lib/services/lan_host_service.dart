@@ -78,7 +78,9 @@ class LanHostService implements IGameTransport {
   Timer? _pingTimer;
   static const _kPingInterval = Duration(seconds: 5);
   static const _kPingTimeout = Duration(seconds: 15);
-
+  // ── Turn timer ───────────────────────────────────────────────
+  Timer? _turnTimer;
+  static const _kTurnTimeout = Duration(seconds: 15);
   @override
   Stream<GameState> get stateStream => _stateCtrl.stream;
   @override
@@ -529,13 +531,43 @@ class LanHostService implements IGameTransport {
     _stateCtrl.add(_state!);
     _broadcastStateUpdate('GAME_START');
     _log('GAME_STARTED players=${_pending.length}');
+    _resetTurnTimer();
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   bool _isCurrentPlayer(String pid) =>
       _state != null && _state!.currentPlayerId == pid;
-
+  void _resetTurnTimer() {
+    _turnTimer?.cancel();
+    if (_state == null || _state!.phase == GamePhase.scoring) return;
+    final playerId = _state!.currentPlayerId;
+    _turnTimer = Timer(_kTurnTimeout, () {
+      if (_state == null) return;
+      if (_state!.currentPlayerId != playerId) return;
+      _log('TURN_TIMEOUT: auto-acting for player=$playerId phase=${_state!.phase.name}');
+      final ActionResult result;
+      if (_state!.phase == GamePhase.attack) {
+        result = GameEngine.endAttackPhase(_state!, playerId);
+      } else {
+        result = GameEngine.pass(_state!, playerId);
+      }
+      if (result is ActionSuccess) {
+        _state = result.newState;
+        _stateCtrl.add(_state!);
+        _broadcastStateUpdate('TURN_TIMEOUT');
+        if (GameEngine.isGameOver(_state!)) {
+          _broadcastAll(GameMessage(type: MessageType.gameOver, payload: {}));
+          _beacon.stop();
+          _turnTimer?.cancel();
+          _log('GAME_OVER');
+          return;
+        }
+        _autoSkipDisconnected();
+        _resetTurnTimer();
+      }
+    });
+  }
   void _applyResult(ActionResult result) {
     switch (result) {
       case ActionSuccess(:final newState, :final logMessage):
@@ -546,11 +578,13 @@ class LanHostService implements IGameTransport {
         if (GameEngine.isGameOver(_state!)) {
           _broadcastAll(GameMessage(type: MessageType.gameOver, payload: {}));
           _beacon.stop(); // Room is finished — stop advertising.
+          _turnTimer?.cancel();
           _log('GAME_OVER');
           return;
         }
         // Auto-skip any disconnected players who now hold the turn.
         _autoSkipDisconnected();
+        _resetTurnTimer();
 
       case ActionFailure(:final reason):
         _log('ACTION_ERROR: $reason');

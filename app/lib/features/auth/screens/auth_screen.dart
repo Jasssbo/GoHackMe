@@ -41,9 +41,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
   int _questionChars = 0;        // how many chars of question are visible
 
   // ── Name guesses (from history) ──────────────────────────────────────────
-  List<String> _guessNames = [];          // up to 3 randomly picked past names
-  int _guessStep = 0;                      // how many guess lines are active/done
-  final List<int> _guessChars = [0, 0, 0]; // chars typed per guess line
+  List<String> _guessNames = [];       // up to 1 randomly picked past name
+  int _guessStep = 0;                   // how many guess lines are active/done
+  final List<int> _guessChars = [0];    // chars typed per guess line
 
   // ── Input ─────────────────────────────────────────────────────────────────
   bool _inputReady = false;
@@ -75,7 +75,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
     final names = await NameHistoryService.getNames();
     if (!mounted || names.isEmpty) return;
     final shuffled = List<String>.from(names)..shuffle(Random());
-    _guessNames = shuffled.take(3).toList();
+    _guessNames = shuffled.take(1).toList();
   }
 
   void _runBoot() {

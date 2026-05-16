@@ -13,12 +13,11 @@ GoHackMe_Flutter/
 ├── packages/go_engine/   ← Pure Dart. No Flutter. Shared by app and server.
 ├── server/               ← Dart Shelf HTTP + WebSocket server.
 ├── app/                  ← Flutter app.
-└── melos.yaml            ← Monorepo orchestrator (links the three packages).
+└── Dockerfile            ← Multi-stage AOT server build.
 ```
 
 `go_engine` is the source of truth for game logic.
 Both `app` and `server` depend on it — neither duplicates logic the other has.
-`melos` makes `flutter pub get` work across all three in one command.
 
 ---
 

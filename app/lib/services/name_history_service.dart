@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 /// when the app is uninstalled (on mobile) or the data folder is cleared.
 class NameHistoryService {
   static const _fileName = 'name_history.txt';
+  static const _maxNames = 10;
 
   static Future<File> _file() async {
     final dir = await getApplicationSupportDirectory();
@@ -36,7 +37,11 @@ class NameHistoryService {
       // Move name to end (most-recent) keeping list unique
       existing.remove(trimmed);
       existing.add(trimmed);
-      await f.writeAsString(existing.join('\n'));
+      // Cap at _maxNames — drop the oldest entries first
+      final capped = existing.length > _maxNames
+          ? existing.sublist(existing.length - _maxNames)
+          : existing;
+      await f.writeAsString(capped.join('\n'));
     } catch (_) {
       // Non-critical – silently ignore I/O errors.
     }

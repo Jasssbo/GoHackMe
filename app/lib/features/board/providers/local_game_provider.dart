@@ -37,13 +37,18 @@ final localGameLogProvider =
 class LocalGameNotifier extends Notifier<GameState?> {
   static const _humanId = 'human_player';
   static const _botId = 'bot_player';
+  static const _kTurnTimeout = Duration(seconds: 15);
 
   // Prevent concurrent bot turns being queued.
   bool _botTurnPending = false;
   BotDifficulty _difficulty = BotDifficulty.intermediate;
+  Timer? _turnTimer;
 
   @override
-  GameState? build() => null;
+  GameState? build() {
+    ref.onDispose(() => _turnTimer?.cancel());
+    return null;
+  }
 
   // ── Start game ────────────────────────────────────────────────────────────
 
@@ -74,6 +79,7 @@ class LocalGameNotifier extends Notifier<GameState?> {
     ref
         .read(localGameLogProvider.notifier)
         .append('>> YOU are $humanName (BLACK). BOT is $botName (WHITE).');
+    _resetTurnTimer();
   }
 
   // Expose constants so the screen can reference them.
@@ -110,6 +116,31 @@ class LocalGameNotifier extends Notifier<GameState?> {
 
   // ── Internal helpers ──────────────────────────────────────────────────────
 
+  void _resetTurnTimer() {
+    _turnTimer?.cancel();
+    _turnTimer = null;
+    final current = state;
+    if (current == null) return;
+    if (current.phase == GamePhase.scoring) return;
+    if (GameEngine.isGameOver(current)) return;
+    // Only enforce for the human — the bot schedules itself.
+    if (current.currentPlayerId != _humanId) return;
+
+    _turnTimer = Timer(_kTurnTimeout, () {
+      final s = state;
+      if (s == null) return;
+      if (s.currentPlayerId != _humanId) return;
+      ref.read(localGameLogProvider.notifier).append('TURN_TIMEOUT >> AUTO_SKIP');
+      final ActionResult result;
+      if (s.phase == GamePhase.attack) {
+        result = GameEngine.endAttackPhase(s, _humanId);
+      } else {
+        result = GameEngine.pass(s, _humanId);
+      }
+      _applyResult(result);
+    });
+  }
+
   void _applyResult(ActionResult result) {
     switch (result) {
       case ActionSuccess(:final newState, :final logMessage):
@@ -119,6 +150,7 @@ class LocalGameNotifier extends Notifier<GameState?> {
         }
 
         if (GameEngine.isGameOver(newState)) {
+          _turnTimer?.cancel();
           _handleGameOver(newState);
           return;
         }
@@ -153,6 +185,8 @@ class LocalGameNotifier extends Notifier<GameState?> {
         if (newState.currentPlayerId == _botId &&
             newState.phase == GamePhase.attack) {
           _scheduleBotTurn();
+        } else {
+          _resetTurnTimer();
         }
 
       case ActionFailure(:final reason):

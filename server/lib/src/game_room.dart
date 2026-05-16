@@ -5,6 +5,11 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 typedef OnEmpty = void Function();
 
+void _log(String tag, String msg) {
+  final ts = DateTime.now().toUtc().toIso8601String();
+  print('[$ts][$tag] $msg');
+}
+
 /// A single game room managing up to 4 connected players.
 ///
 /// [GameRoom] holds the authoritative [GameState] and fans out every state
@@ -27,6 +32,10 @@ class GameRoom {
   final _disconnectedPlayerIds = <String>{};
   final _reconnectTimers = <String, Timer>{};
   static const _kReconnectGrace = Duration(seconds: 30);
+
+  // ── Turn timer ────────────────────────────────────────────────────────────
+  Timer? _turnTimer;
+  static const _kTurnTimeout = Duration(seconds: 15);
 
   // Configurable – host sets this when creating the room
   int maxPlayers;
@@ -56,6 +65,7 @@ class GameRoom {
       _reconnectTimers[player.id]?.cancel();
       _reconnectTimers.remove(player.id);
       _connections[player.id] = channel;
+      _log('room:$id', 'player RECONNECTED: ${player.id} (${player.displayName})');
       // Immediately sync the returning player.
       channel.sink.add(GameMessage(
         type: MessageType.gameStateUpdate,
@@ -77,6 +87,7 @@ class GameRoom {
     _connections[player.id] = channel;
     // First to join is the room host.
     _hostPlayerId ??= player.id;
+    _log('room:$id', 'player joined: ${player.id} (${player.displayName}) [${_players.length}/$maxPlayers]');
 
     _broadcast(GameMessage(
       type: MessageType.playerJoined,
@@ -106,12 +117,14 @@ class GameRoom {
 
     // Mid-game disconnect: keep slot alive for the reconnect grace period.
     if (_state != null && _players.any((p) => p.id == playerId)) {
+      _log('room:$id', 'player DISCONNECTED (mid-game): $playerId — grace ${_kReconnectGrace.inSeconds}s');
       _disconnectedPlayerIds.add(playerId);
       _reconnectTimers[playerId]?.cancel();
       _reconnectTimers[playerId] = Timer(_kReconnectGrace, () {
         _disconnectedPlayerIds.remove(playerId);
         _reconnectTimers.remove(playerId);
         _players.removeWhere((p) => p.id == playerId);
+        _log('room:$id', 'player TIMED OUT after ${_kReconnectGrace.inSeconds}s: $playerId');
         _broadcast(GameMessage(
           type: MessageType.playerLeft,
           roomId: id,
@@ -128,6 +141,7 @@ class GameRoom {
     }
 
     // Pre-game or player not found: immediate removal.
+    _log('room:$id', 'player left (pre-game): $playerId');
     _players.removeWhere((p) => p.id == playerId);
     _broadcast(GameMessage(
       type: MessageType.playerLeft,
@@ -160,6 +174,7 @@ class GameRoom {
           _sendError(verifiedPlayerId, 'POSITION_OUT_OF_BOUNDS');
           return;
         }
+        _log('room:$id', 'placeStone: player=$verifiedPlayerId pos=($x,$y)');
         result = GameEngine.placeStone(
           _state!,
           verifiedPlayerId, // use server-verified id, not client-supplied
@@ -167,9 +182,11 @@ class GameRoom {
         );
 
       case MessageType.pass:
+        _log('room:$id', 'pass: player=$verifiedPlayerId');
         result = GameEngine.pass(_state!, verifiedPlayerId);
 
       case MessageType.endAttackPhase:
+        _log('room:$id', 'endAttackPhase: player=$verifiedPlayerId');
         result = GameEngine.endAttackPhase(_state!, verifiedPlayerId);
 
       case MessageType.performAttack:
@@ -185,6 +202,7 @@ class GameRoom {
           _sendError(verifiedPlayerId, 'INVALID_ATTACK_PAYLOAD');
           return;
         }
+        _log('room:$id', 'attack: player=$verifiedPlayerId type=${action.type.name} target=${action.targetPlayerId}');
         result = GameEngine.launchAttack(_state!, action);
 
       default:
@@ -197,19 +215,53 @@ class GameRoom {
       _broadcastState(logMessage: result.logMessage);
 
       if (GameEngine.isGameOver(_state!)) {
+        _turnTimer?.cancel();
         _broadcastGameOver();
+      } else {
+        _resetTurnTimer();
       }
     } else if (result is ActionFailure) {
+      _log('room:$id', 'action rejected: player=$verifiedPlayerId reason=${(result).reason}');
       _sendError(verifiedPlayerId, (result).reason);
     }
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────
 
+  /// Resets (or starts) the 15-second turn clock for the current player.
+  /// When it fires the server auto-acts on behalf of the inactive player.
+  void _resetTurnTimer() {
+    _turnTimer?.cancel();
+    if (_state == null || _state!.phase == GamePhase.scoring) return;
+    final playerId = _state!.currentPlayerId;
+    _turnTimer = Timer(_kTurnTimeout, () {
+      if (_state == null) return;
+      if (_state!.currentPlayerId != playerId) return; // already advanced
+      _log('room:$id', 'TURN_TIMEOUT: auto-acting for player=$playerId phase=${_state!.phase.name}');
+      final ActionResult result;
+      if (_state!.phase == GamePhase.attack) {
+        result = GameEngine.endAttackPhase(_state!, playerId);
+      } else {
+        // playing or hijackedVictimPlacement — auto-pass
+        result = GameEngine.pass(_state!, playerId);
+      }
+      if (result is ActionSuccess) {
+        _state = result.newState;
+        _broadcastState(logMessage: 'TURN_TIMEOUT');
+        if (GameEngine.isGameOver(_state!)) {
+          _broadcastGameOver();
+          return;
+        }
+        _resetTurnTimer();
+      }
+    });
+  }
+
   void _startGame() {
     _state = GameState.newGame(players: _players, boardSize: boardSize);
-    print('[GameRoom $id] game started with ${_players.length} players');
+    _log('room:$id', 'game STARTED — ${_players.length} players, ${boardSize}x$boardSize board');
     _broadcastState(logMessage: 'GAME_START');
+    _resetTurnTimer();
   }
 
   void _broadcastState({String? logMessage}) {
@@ -222,6 +274,7 @@ class GameRoom {
 
   void _broadcastGameOver() {
     final scores = Scorer.areaScore(_state!.board);
+    _log('room:$id', 'game OVER — scores: ${scores.map((k, v) => MapEntry(k.name, v))}');
     _broadcast(GameMessage(
       type: MessageType.gameOver,
       roomId: id,

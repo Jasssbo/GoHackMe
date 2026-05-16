@@ -43,12 +43,18 @@ String? _validatePlayerAndRoom(String playerId, String roomId) {
 /// Prevents file-descriptor exhaustion and memory DoS on Render.com free tier.
 const _kMaxConnections = 200;
 
+void _log(String tag, String msg) {
+  final ts = DateTime.now().toUtc().toIso8601String();
+  print('[$ts][$tag] $msg');
+}
+
 Handler buildWsHandler(RoomManager roomManager) {
   var activeConnections = 0;
 
   return webSocketHandler((WebSocketChannel channel, String? protocol) {
     // Reject the upgrade immediately if we are at capacity.
     if (activeConnections >= _kMaxConnections) {
+      _log('ws', 'rejected connection — SERVER_FULL ($activeConnections/$_kMaxConnections)');
       channel.sink.add(
         GameMessage.error(reason: 'SERVER_FULL').toJsonString(),
       );
@@ -56,6 +62,7 @@ Handler buildWsHandler(RoomManager roomManager) {
       return;
     }
     activeConnections++;
+    _log('ws', 'client connected (active: $activeConnections)');
 
     String? connectedPlayerId;
     String? connectedRoomId;
@@ -76,16 +83,19 @@ Handler buildWsHandler(RoomManager roomManager) {
       pingTimer = null;
       activeConnections--;
       if (connectedRoomId != null && connectedPlayerId != null) {
+        _log('ws', 'disconnected: player=$connectedPlayerId room=$connectedRoomId (active: $activeConnections)');
         roomManager.getRoom(connectedRoomId!)?.removePlayer(connectedPlayerId!);
         connectedRoomId = null;
         connectedPlayerId = null;
+      } else {
+        _log('ws', 'anonymous client disconnected (active: $activeConnections)');
       }
     }
 
     pingTimer = Timer.periodic(_kPingInterval, (_) {
       missedPongs++;
       if (missedPongs > _kMaxMissedPongs) {
-        print('[ws_handler] no pong from ${connectedPlayerId ?? "unknown"} — closing');
+        _log('ws', 'no pong from ${connectedPlayerId ?? "unknown"} — closing stale connection');
         cleanup();
         channel.sink.close();
         return;
@@ -99,6 +109,7 @@ Handler buildWsHandler(RoomManager roomManager) {
 
         // ── Size guard ─────────────────────────────────────────────────────
         if (raw.length > _kMaxMessageBytes) {
+          _log('ws', 'MESSAGE_TOO_LARGE from ${connectedPlayerId ?? "unknown"} (${raw.length} bytes) — closing');
           channel.sink.add(
             GameMessage.error(reason: 'MESSAGE_TOO_LARGE').toJsonString(),
           );
@@ -114,6 +125,7 @@ Handler buildWsHandler(RoomManager roomManager) {
         }
         msgCount++;
         if (msgCount > _kRateLimitPerSecond) {
+          _log('ws', 'RATE_LIMITED ${connectedPlayerId ?? "unknown"} ($msgCount msg/s) — closing');
           channel.sink.add(
             GameMessage.error(reason: 'RATE_LIMITED').toJsonString(),
           );
@@ -210,6 +222,7 @@ Handler buildWsHandler(RoomManager roomManager) {
 
           connectedPlayerId = playerId;
           connectedRoomId = roomId;
+          _log('ws', 'joined: player=$playerId name="$sanitisedName" room=$roomId');
           return;
         }
 
@@ -232,8 +245,10 @@ Handler buildWsHandler(RoomManager roomManager) {
         // ── Host early-start ───────────────────────────────────────────────
         if (message.type == MessageType.startGame) {
           // Only the room host (first player to join) may trigger an early start.
+          _log('ws', 'forceStart requested by player=$connectedPlayerId room=$connectedRoomId');
           final err = room.forceStart(requesterId: connectedPlayerId!);
           if (err != null) {
+            _log('ws', 'forceStart denied: $err');
             channel.sink.add(
               GameMessage.error(
                 reason: err,

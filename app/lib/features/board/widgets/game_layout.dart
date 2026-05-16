@@ -90,9 +90,33 @@ class _GameLayoutState extends State<GameLayout> {
     _timebombTimer = null;
   }
 
+  // ── Turn countdown (15 s) ─────────────────────────────────────────────────
+  static const _kTurnSeconds = 15;
+  Timer? _turnCountdownTimer;
+  int _turnSecondsLeft = _kTurnSeconds;
+
+  void _resetTurnCountdown() {
+    _turnCountdownTimer?.cancel();
+    _turnSecondsLeft = _kTurnSeconds;
+    _turnCountdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) { t.cancel(); return; }
+      setState(() {
+        _turnSecondsLeft--;
+        if (_turnSecondsLeft <= 0) { t.cancel(); _turnSecondsLeft = 0; }
+      });
+    });
+  }
+
+  void _cancelTurnCountdown() {
+    _turnCountdownTimer?.cancel();
+    _turnCountdownTimer = null;
+    _turnSecondsLeft = _kTurnSeconds;
+  }
+
   @override
   void dispose() {
     _cancelTimebomb();
+    _cancelTurnCountdown();
     super.dispose();
   }
 
@@ -100,6 +124,7 @@ class _GameLayoutState extends State<GameLayout> {
   void initState() {
     super.initState();
     _startTimebombIfNeeded();
+    _resetTurnCountdown();
   }
 
   @override
@@ -123,6 +148,11 @@ class _GameLayoutState extends State<GameLayout> {
       }
     } else {
       _cancelTimebomb();
+    }
+    // Reset turn countdown whenever the active player changes.
+    if (oldWidget.state.currentPlayerId != widget.state.currentPlayerId ||
+        oldWidget.state.phase != widget.state.phase) {
+      _resetTurnCountdown();
     }
   }
 
@@ -184,6 +214,7 @@ class _GameLayoutState extends State<GameLayout> {
             localPlayerId: widget.localPlayerId,
             onPass: widget.onPass,
             onExit: widget.onExit,
+            turnSecondsLeft: _turnSecondsLeft,
           ),
 
           // ── Position-pick hint banner ────────────────────────
@@ -363,6 +394,7 @@ class GameStatusStrip extends StatelessWidget {
   final String localPlayerId;
   final VoidCallback? onPass;
   final VoidCallback? onExit;
+  final int turnSecondsLeft;
 
   const GameStatusStrip({
     super.key,
@@ -370,6 +402,7 @@ class GameStatusStrip extends StatelessWidget {
     required this.localPlayerId,
     this.onPass,
     this.onExit,
+    this.turnSecondsLeft = 15,
   });
 
   @override
@@ -377,6 +410,8 @@ class GameStatusStrip extends StatelessWidget {
     final isMyTurn = state.currentPlayerId == localPlayerId;
     // The active playing phase is always `attack` (placement + optional attacks).
     final canPass  = isMyTurn && state.phase == GamePhase.attack;
+    final isActive = state.phase != GamePhase.scoring;
+    final urgentSeconds = turnSecondsLeft <= 5;
 
     return Container(
       decoration: const BoxDecoration(
@@ -410,6 +445,21 @@ class GameStatusStrip extends StatelessWidget {
             ),
           ),
           const Spacer(),
+          // ── Turn countdown ───────────────────────
+          if (isActive)
+            Text(
+              '${turnSecondsLeft}s',
+              style: TextStyle(
+                color: urgentSeconds
+                    ? CyberpunkColors.magenta
+                    : Colors.white.withValues(alpha: 0.90),
+                fontSize: 9,
+                letterSpacing: 1,
+                fontFamily: 'monospace',
+                fontWeight: urgentSeconds ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          const SizedBox(width: 8),
           if (onExit != null)
             _StripButton(
               label: 'EXIT',
@@ -675,91 +725,179 @@ class AttackCodex extends StatefulWidget {
 }
 
 class _AttackCodexState extends State<AttackCodex> {
-  bool _expanded = false;
+  void _openFullscreen(BuildContext context) {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Close ATTACK_CODEX',
+      barrierColor: Colors.black.withValues(alpha: 0.88),
+      transitionDuration: const Duration(milliseconds: 180),
+      transitionBuilder: (ctx, anim, _, child) => FadeTransition(
+        opacity: anim,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.97, end: 1.0).animate(anim),
+          child: child,
+        ),
+      ),
+      pageBuilder: (ctx, _, __) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: double.infinity,
+                height: double.infinity,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF020810),
+                  border: Border.all(color: CyberpunkColors.cyanDim, width: 1),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Header row with close button
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(20, 14, 14, 14),
+                      decoration: const BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(color: CyberpunkColors.cyanDim, width: 1),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Text(
+                            '// ATTACK_CODEX',
+                            style: TextStyle(
+                              color: CyberpunkColors.cyanDim,
+                              fontSize: 15,
+                              letterSpacing: 3,
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const Spacer(),
+                          InkWell(
+                            onTap: () => Navigator.of(ctx).pop(),
+                            child: const Padding(
+                              padding: EdgeInsets.all(6),
+                              child: Text(
+                                '[X]',
+                                style: TextStyle(
+                                  color: CyberpunkColors.textDim,
+                                  fontSize: 14,
+                                  letterSpacing: 1,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Entries list
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: AttackCard.all.map((card) {
+                            return Container(
+                              margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  left: BorderSide(
+                                    color: CyberpunkColors.magenta.withValues(alpha: 0.45),
+                                    width: 2,
+                                  ),
+                                ),
+                                color: CyberpunkColors.magenta.withValues(alpha: 0.03),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        card.terminalName,
+                                        style: const TextStyle(
+                                          color: CyberpunkColors.magenta,
+                                          fontSize: 16,
+                                          letterSpacing: 1.5,
+                                          fontFamily: 'monospace',
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 14),
+                                      Text(
+                                        '${card.subnetCost} SN',
+                                        style: const TextStyle(
+                                          color: CyberpunkColors.amber,
+                                          fontSize: 14,
+                                          letterSpacing: 1,
+                                          fontFamily: 'monospace',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    card.description,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                      letterSpacing: 0.3,
+                                      height: 1.6,
+                                      fontFamily: 'monospace',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // ── Header / toggle ─────────────────────────────────────
-        InkWell(
-          onTap: () => setState(() => _expanded = !_expanded),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(10, 5, 10, 5),
-            child: Row(
-              children: [
-                Text(
-                  '// ATTACK_CODEX',
-                  style: const TextStyle(
-                    color: CyberpunkColors.cyanDim,
-                    fontSize: 9,
-                    letterSpacing: 2,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  _expanded ? '[-]' : '[+]',
-                  style: const TextStyle(
-                    color: CyberpunkColors.textDim,
-                    fontSize: 9,
-                    letterSpacing: 1,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ],
+    return InkWell(
+      onTap: () => _openFullscreen(context),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 5, 10, 5),
+        child: Row(
+          children: [
+            const Text(
+              '// ATTACK_CODEX',
+              style: TextStyle(
+                color: CyberpunkColors.cyanDim,
+                fontSize: 9,
+                letterSpacing: 2,
+                fontFamily: 'monospace',
+              ),
             ),
-          ),
+            const Spacer(),
+            const Text(
+              '[+]',
+              style: TextStyle(
+                color: CyberpunkColors.textDim,
+                fontSize: 9,
+                letterSpacing: 1,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ],
         ),
-        // ── Entries ─────────────────────────────────────────────
-        if (_expanded)
-          Container(
-            color: const Color(0xFF030A11),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: AttackCard.all.map((card) {
-                return Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 3, 10, 3),
-                  child: RichText(
-                    text: TextSpan(
-                      children: [
-                        TextSpan(
-                          text: card.terminalName.padRight(14),
-                          style: const TextStyle(
-                            color: CyberpunkColors.magenta,
-                            fontSize: 8,
-                            letterSpacing: 0.5,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                        TextSpan(
-                          text: '${card.subnetCost}SN  ',
-                          style: const TextStyle(
-                            color: CyberpunkColors.amber,
-                            fontSize: 8,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                        TextSpan(
-                          text: card.description,
-                          style: const TextStyle(
-                            color: CyberpunkColors.textSecondary,
-                            fontSize: 8,
-                            letterSpacing: 0.2,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-      ],
+      ),
     );
   }
 }
