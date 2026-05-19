@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:go_engine/go_engine.dart';
 
@@ -190,11 +191,20 @@ class _BoardWidgetState extends State<BoardWidget>
         final h = constraints.maxHeight.isFinite ? constraints.maxHeight : w;
         _canvasSize = Size(w, h);
 
-        return GestureDetector(
-          onScaleStart:  _onScaleStart,
-          onScaleUpdate: _onScaleUpdate,
-          onScaleEnd:    _onScaleEnd,
-          child: AnimatedBuilder(
+        return Listener(
+          // Desktop scroll wheel / trackpad zoom.
+          onPointerSignal: (e) {
+            if (e is PointerScrollEvent) {
+              setState(() {
+                _zoom = (_zoom - e.scrollDelta.dy * 0.002).clamp(0.35, 4.0);
+              });
+            }
+          },
+          child: GestureDetector(
+            onScaleStart:  _onScaleStart,
+            onScaleUpdate: _onScaleUpdate,
+            onScaleEnd:    _onScaleEnd,
+            child: AnimatedBuilder(
             animation: Listenable.merge([_pulseCtrl, _packetCtrl, _flickerCtrl, _turnCtrl]),
             builder: (_, __) => RepaintBoundary(
               child: CustomPaint(
@@ -215,7 +225,8 @@ class _BoardWidgetState extends State<BoardWidget>
               ),
             ),
           ),
-        );
+        ),
+      );
       },
     );
   }

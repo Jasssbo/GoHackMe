@@ -55,9 +55,15 @@ class _GlobeWidgetState extends State<GlobeWidget>
   double _pitch = 0.22;
   double _scale = 1.0;
 
-  Offset? _panStart;
+  // Captured at gesture start for cumulative pan + pinch.
+  Offset? _gestureStart;
   double _yawAtStart = 0;
   double _pitchAtStart = 0;
+  double _scaleAtStart = 1.0;
+
+  // Tap detection state.
+  DateTime? _tapStartTime;
+  bool _gestureWasDrag = false;
 
   late final AnimationController _ticker;
 
@@ -105,12 +111,52 @@ class _GlobeWidgetState extends State<GlobeWidget>
     }
   }
 
-  void _onTapUp(TapUpDetails d) {
+  // ── Gesture handlers ────────────────────────────────────────────────────
+
+  void _onScaleStart(ScaleStartDetails d) {
+    _gestureStart  = d.localFocalPoint;
+    _yawAtStart    = _yaw;
+    _pitchAtStart  = _pitch;
+    _scaleAtStart  = _scale;
+    _tapStartTime  = DateTime.now();
+    _gestureWasDrag = false;
+  }
+
+  void _onScaleUpdate(ScaleUpdateDetails d) {
+    if (!_gestureWasDrag) {
+      final moved = (d.localFocalPoint - _gestureStart!).distance;
+      if (moved > 6 || d.scale != 1.0) _gestureWasDrag = true;
+    }
+    if (!_gestureWasDrag) return;
+    setState(() {
+      // Rotation: cumulative delta from gesture start.
+      final dx = d.localFocalPoint.dx - _gestureStart!.dx;
+      final dy = d.localFocalPoint.dy - _gestureStart!.dy;
+      _yaw   = _yawAtStart + dx * 0.006;
+      _pitch = (_pitchAtStart + dy * 0.006)
+          .clamp(-math.pi / 2.05, math.pi / 2.05);
+      // Zoom: two-finger pinch.
+      if (d.pointerCount >= 2) {
+        _scale = (_scaleAtStart * d.scale).clamp(0.5, 2.5);
+      }
+    });
+  }
+
+  void _onScaleEnd(ScaleEndDetails d) {
+    if (!_gestureWasDrag && _gestureStart != null && _tapStartTime != null) {
+      final ms = DateTime.now().difference(_tapStartTime!).inMilliseconds;
+      if (ms < 350) _hitTest(_gestureStart!);
+    }
+    _gestureStart   = null;
+    _gestureWasDrag = false;
+  }
+
+  void _hitTest(Offset localPosition) {
     const hitRadius = 20.0;
     LobbyMarker? nearest;
     double nearestDist = double.infinity;
     for (final (marker, pt) in _projected) {
-      final dist = (d.localPosition - pt).distance;
+      final dist = (localPosition - pt).distance;
       if (dist < hitRadius && dist < nearestDist) {
         nearest = marker;
         nearestDist = dist;
@@ -121,32 +167,20 @@ class _GlobeWidgetState extends State<GlobeWidget>
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onPanStart: (d) {
-        _panStart = d.localPosition;
-        _yawAtStart = _yaw;
-        _pitchAtStart = _pitch;
+    return Listener(
+      // Desktop scroll wheel / trackpad zoom.
+      onPointerSignal: (e) {
+        if (e is PointerScrollEvent) {
+          setState(() {
+            _scale = (_scale - e.scrollDelta.dy * 0.001).clamp(0.5, 2.5);
+          });
+        }
       },
-      onPanUpdate: (d) {
-        if (_panStart == null) return;
-        setState(() {
-          final dx = d.localPosition.dx - _panStart!.dx;
-          final dy = d.localPosition.dy - _panStart!.dy;
-          _yaw = _yawAtStart + dx * 0.006;
-          _pitch = (_pitchAtStart + dy * 0.006)
-              .clamp(-math.pi / 2.05, math.pi / 2.05);
-        });
-      },
-      onTapUp: _onTapUp,
-      child: Listener(
-        onPointerSignal: (e) {
-          if (e is PointerScrollEvent) {
-            setState(() {
-              _scale =
-                  (_scale - e.scrollDelta.dy * 0.001).clamp(0.5, 2.5);
-            });
-          }
-        },
+      child: GestureDetector(
+        // onScale handles both 1-finger drag (rotate) and 2-finger pinch (zoom).
+        onScaleStart:  _onScaleStart,
+        onScaleUpdate: _onScaleUpdate,
+        onScaleEnd:    _onScaleEnd,
         child: AnimatedBuilder(
           animation: _ticker,
           builder: (context, _) {
