@@ -110,6 +110,9 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
       case WiredStatus.connecting:
         return const _Spinner(label: 'CONNECTING_TO_SERVER...');
 
+      case WiredStatus.waking:
+        return _WakingPanel(onBack: () => _leave(context));
+
       case WiredStatus.waiting:
         return ws.role == WiredRole.host
             ? _HostLobbyPanel(
@@ -441,33 +444,54 @@ class _RoomRow extends StatelessWidget {
           // Board size tag
           _Tag('${room.boardSize}×${room.boardSize}', CyberpunkColors.cyanDim),
           const SizedBox(width: 8),
-          // Player pips
-          Row(
-            children: List.generate(room.maxPlayers, (i) => Padding(
-              padding: const EdgeInsets.only(right: 3),
-              child: Container(
-                width: 7,
-                height: 7,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: i < room.playerCount
-                      ? _kIndigo
-                      : _kIndigo.withValues(alpha: 0.22),
+          if (room.reconnecting) ...[
+            _Tag('IN_PROGRESS', CyberpunkColors.warning),
+            const SizedBox(width: 6),
+          ] else ...[
+            // Player pips
+            Row(
+              children: List.generate(room.maxPlayers, (i) => Padding(
+                padding: const EdgeInsets.only(right: 3),
+                child: Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: i < room.playerCount
+                        ? _kIndigo
+                        : _kIndigo.withValues(alpha: 0.22),
+                  ),
                 ),
-              ),
-            )),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            '${room.playerCount}/${room.maxPlayers}',
-            style: TextStyle(
-              color: full ? CyberpunkColors.error : CyberpunkColors.textSecondary,
-              fontSize: 9,
-              fontFamily: 'monospace',
+              )),
             ),
-          ),
+            const SizedBox(width: 6),
+            Text(
+              '${room.playerCount}/${room.maxPlayers}',
+              style: TextStyle(
+                color: full ? CyberpunkColors.error : CyberpunkColors.textSecondary,
+                fontSize: 9,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ],
           const Spacer(),
-          if (!full)
+          if (room.reconnecting)
+            TextButton(
+              onPressed: onJoin,
+              style: TextButton.styleFrom(
+                foregroundColor: _kIndigoBg,
+                backgroundColor: onJoin != null
+                    ? CyberpunkColors.warning
+                    : CyberpunkColors.warning.withValues(alpha: 0.4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text('RECONNECT',
+                  style: TextStyle(fontSize: 9, fontFamily: 'monospace')),
+            )
+          else if (!full)
             TextButton(
               onPressed: onJoin,
               style: TextButton.styleFrom(
@@ -775,6 +799,92 @@ class _GuestWaitingPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── _Spinner ───────────────────────────────────────────────────────────────
+
+// ── _WakingPanel ───────────────────────────────────────────────────────────
+
+/// Shown when the Render.com server is in sleep mode and the service is
+/// automatically retrying.  Displays an animated status and a cancel button.
+class _WakingPanel extends StatefulWidget {
+  final VoidCallback onBack;
+  const _WakingPanel({required this.onBack});
+
+  @override
+  State<_WakingPanel> createState() => _WakingPanelState();
+}
+
+class _WakingPanelState extends State<_WakingPanel> {
+  int _dots = 0;
+  Timer? _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = Timer.periodic(const Duration(milliseconds: 600), (_) {
+      if (mounted) setState(() => _dots = (_dots + 1) % 4);
+    });
+  }
+
+  @override
+  void dispose() {
+    _anim?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                    color: _kIndigo, strokeWidth: 1.5),
+              ),
+              const SizedBox(height: 22),
+              Text(
+                'WAKING_UP_SERVER${'.' * _dots}',
+                style: const TextStyle(
+                  color: _kIndigo,
+                  fontSize: 13,
+                  letterSpacing: 2,
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'The server is spinning up from sleep mode.\nRetrying automatically — this takes ~30 s.',
+                style: TextStyle(
+                  color: CyberpunkColors.textSecondary,
+                  fontSize: 9,
+                  fontFamily: 'monospace',
+                  height: 1.8,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 28),
+              TextButton(
+                onPressed: widget.onBack,
+                child: const Text(
+                  '< CANCEL',
+                  style: TextStyle(
+                    color: _kIndigoDim,
+                    fontSize: 9,
+                    fontFamily: 'monospace',
+                    letterSpacing: 1.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
 // ── _Spinner ───────────────────────────────────────────────────────────────

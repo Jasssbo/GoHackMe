@@ -39,15 +39,18 @@ class RoomManager {
 
   int get activeRoomCount => _rooms.length;
 
-  /// All rooms that are waiting for players (not yet started, not empty).
-  /// Used by the Wired lobby browser.
+  /// All rooms visible in the Wired lobby browser:
+  /// - Not-yet-started rooms open for new players.
+  /// - Started rooms where a player disconnected and has an active reconnect
+  ///   grace window (so they can find and rejoin the game).
   List<Map<String, dynamic>> get openRooms => _rooms.values
-      .where((r) => !r.isStarted && !r.isEmpty)
+      .where((r) => (!r.isStarted && !r.isEmpty) || r.hasReconnectSlots)
       .map((r) => {
             'code': r.id,
             'boardSize': r.boardSize,
             'playerCount': r.playerCount,
             'maxPlayers': r.maxPlayers,
+            'reconnecting': r.hasReconnectSlots,
             if (r.hostLat != null) 'lat': r.hostLat,
             if (r.hostLon != null) 'lon': r.hostLon,
             if (r.hostCity != null && r.hostCity!.isNotEmpty) 'city': r.hostCity,

@@ -11,7 +11,7 @@ import 'connected_player.dart';
 
 // ── WiredRoomInfo ─────────────────────────────────────────────────────────
 
-/// A room visible in the Wired lobby browser (not yet started).
+/// A room visible in the Wired lobby browser.
 class WiredRoomInfo {
   final String code;
   final int boardSize;
@@ -21,6 +21,9 @@ class WiredRoomInfo {
   final double? lon;
   final String? city;
   final String? country;
+  /// True when the game has already started but a player disconnected within
+  /// their 30-second reconnect grace window — shown so they can rejoin.
+  final bool reconnecting;
 
   const WiredRoomInfo({
     required this.code,
@@ -31,6 +34,7 @@ class WiredRoomInfo {
     this.lon,
     this.city,
     this.country,
+    this.reconnecting = false,
   });
 
   factory WiredRoomInfo.fromJson(Map<String, dynamic> j) => WiredRoomInfo(
@@ -42,6 +46,7 @@ class WiredRoomInfo {
         lon: (j['lon'] as num?)?.toDouble(),
         city: j['city'] as String?,
         country: j['country'] as String?,
+        reconnecting: j['reconnecting'] as bool? ?? false,
       );
 }
 
@@ -57,11 +62,17 @@ class WiredRoomInfo {
 /// [MessageType.playerLeft] server broadcasts.
 class WiredServerService implements IGameTransport {
   static const _kMaxReconnectAttempts = 5;
+  /// Number of cold-start wake retries before giving up with CONNECTION_FAILED.
+  static const _kMaxWakeAttempts = 8;
 
   WebSocketChannel? _channel;
   StreamSubscription? _sub;
   bool _disposed = false;
   int _reconnectAttempts = 0;
+  int _wakeAttempts = 0;
+  /// True once the socket has successfully connected at least once.  Used to
+  /// distinguish an initial cold-start from a mid-game reconnect attempt.
+  bool _hasConnectedOnce = false;
 
   // Stored for reconnection
   String? _playerId;
@@ -117,11 +128,24 @@ class WiredServerService implements IGameTransport {
     try {
       await _channel!.ready.timeout(const Duration(seconds: 8));
     } catch (e) {
-      _errorCtrl.add('CONNECTION_FAILED');
       await _channel?.sink.close();
       _channel = null;
+      // Only show the "waking up" UX for the initial connection to a potentially
+      // sleeping Render.com server.  Mid-game reconnects use the existing path.
+      if (!_disposed && !_hasConnectedOnce && _wakeAttempts < _kMaxWakeAttempts) {
+        _wakeAttempts++;
+        _logCtrl.add('WAKE_ATTEMPT: $_wakeAttempts/$_kMaxWakeAttempts');
+        _errorCtrl.add('WAKING_UP');
+        Future.delayed(const Duration(seconds: 5), () {
+          if (!_disposed) _openSocket();
+        });
+      } else {
+        _errorCtrl.add('CONNECTION_FAILED');
+      }
       return;
     }
+    _hasConnectedOnce = true;
+    _wakeAttempts = 0;
 
     _sub = _channel!.stream.listen(
       _handleMessage,

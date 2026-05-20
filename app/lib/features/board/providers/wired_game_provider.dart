@@ -19,6 +19,8 @@ enum WiredStatus {
   idle,
   /// Connecting to the server.
   connecting,
+  /// Server is in sleep mode (Render.com cold start); retrying automatically.
+  waking,
   /// Connected — waiting for enough players / host to start.
   waiting,
   /// Game in progress.
@@ -129,7 +131,12 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
       maxPlayers: maxPlayers,
     );
 
-    state = state.copyWith(status: WiredStatus.waiting);
+    // Only advance to waiting if we're still in the initial connecting phase.
+    // If the server was sleeping, _onError flips status to waking and the
+    // transition to waiting happens later via _onLog('UPLINK_ESTABLISHED').
+    if (state.status == WiredStatus.connecting) {
+      state = state.copyWith(status: WiredStatus.waiting);
+    }
   }
 
   /// Sends a startGame request to the server (host only; ≥ 2 players required).
@@ -168,7 +175,9 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
       roomCode: roomCode.toUpperCase(),
     );
 
-    state = state.copyWith(status: WiredStatus.waiting);
+    if (state.status == WiredStatus.connecting) {
+      state = state.copyWith(status: WiredStatus.waiting);
+    }
   }
 
   // ── Game actions ──────────────────────────────────────────────────────────
@@ -196,9 +205,17 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
   void _subscribeToTransport() {
     final t = _transport!;
     _subs.add(t.stateStream.listen(_onGameState));
-    _subs.add(t.logStream.listen(_addLog));
+    _subs.add(t.logStream.listen(_onLog));
     _subs.add(t.errorStream.listen(_onError));
     _subs.add(t.playerListStream.listen(_onPlayerList));
+  }
+
+  void _onLog(String line) {
+    // When a wake retry successfully connects, transition from waking → waiting.
+    if (line == 'UPLINK_ESTABLISHED' && state.status == WiredStatus.waking) {
+      state = state.copyWith(status: WiredStatus.waiting);
+    }
+    _addLog(line);
   }
 
   void _onGameState(GameState gs) {
@@ -218,6 +235,11 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     // Ignore non-fatal server errors during gameplay.
     if (state.status == WiredStatus.playing) {
       _addLog('SERVER_ERROR: $msg');
+      return;
+    }
+    // Server is in sleep mode (cold start) — service is auto-retrying.
+    if (msg == 'WAKING_UP') {
+      state = state.copyWith(status: WiredStatus.waking);
       return;
     }
     state = state.copyWith(status: WiredStatus.error, errorMessage: msg);

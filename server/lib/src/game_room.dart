@@ -56,6 +56,7 @@ class GameRoom {
   bool get isEmpty => _connections.isEmpty && _reconnectTimers.isEmpty;
   bool get isFull => _players.length >= maxPlayers;
   bool get isStarted => _state != null;
+  bool get hasReconnectSlots => _reconnectTimers.isNotEmpty;
   int get playerCount => _players.length;
   List<Player> get players => List.unmodifiable(_players);
 
@@ -143,6 +144,14 @@ class GameRoom {
         roomId: id,
         payload: {'playerId': playerId},
       ));
+      // If only one player remains active, end the game immediately — no need
+      // to wait for the 15-second turn timer.
+      final activeCount = _players.length - _disconnectedPlayerIds.length;
+      if (activeCount <= 1 && _players.length > 1) {
+        _log('room:$id', 'LAST_ENTITY_STANDING (on disconnect) — game ends by forfeit');
+        _turnTimer?.cancel();
+        _broadcastGameOver();
+      }
       return;
     }
 
@@ -289,6 +298,11 @@ class GameRoom {
   void _broadcastGameOver() {
     final scores = Scorer.areaScore(_state!.board);
     _log('room:$id', 'game OVER — scores: ${scores.map((k, v) => MapEntry(k.name, v))}');
+    // Force the state to the scoring phase so clients whose game-over detection
+    // relies on GamePhase (wired_game_provider._onGameState) correctly
+    // transition their UI to the game-over screen.
+    _state = _state!.copyWith(phase: GamePhase.scoring);
+    _broadcastState(logMessage: 'GAME_OVER');
     _broadcast(GameMessage(
       type: MessageType.gameOver,
       roomId: id,
