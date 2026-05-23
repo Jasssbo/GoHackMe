@@ -115,6 +115,11 @@ class WiredServerService implements IGameTransport {
 
   Future<void> _openSocket() async {
     final base = AppConfig.wiredServerUrl;
+    // Guard against unconfigured server URL.
+    if (base.isEmpty) {
+      _errorCtrl.add('INVALID_SERVER_URL');
+      return;
+    }
     // Convert http(s):// → ws(s):// using Uri to avoid fragile string replacements.
     final baseUri = Uri.tryParse(base);
     if (baseUri == null) {
@@ -124,8 +129,11 @@ class WiredServerService implements IGameTransport {
     final wsScheme = baseUri.scheme == 'https' ? 'wss' : 'ws';
     final uri = baseUri.replace(scheme: wsScheme, path: '/ws');
 
-    _channel = WebSocketChannel.connect(uri);
     try {
+      // Connect is inside the try/catch so that a synchronous throw from the
+      // WebSocket library (e.g. SocketException on Linux with an invalid host)
+      // is caught here rather than propagating out of _openSocket().
+      _channel = WebSocketChannel.connect(uri);
       await _channel!.ready.timeout(const Duration(seconds: 8));
     } catch (e) {
       await _channel?.sink.close();

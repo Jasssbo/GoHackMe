@@ -115,7 +115,7 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     _transport = svc;
 
     state = WiredGameState(
-      status: WiredStatus.connecting,
+      status: WiredStatus.waking,
       role: WiredRole.host,
       localPlayerId: playerId,
       roomCode: roomCode,
@@ -124,18 +124,26 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
 
     _subscribeToTransport();
 
-    await svc.connect(
-      playerId: playerId,
-      displayName: displayName,
-      roomCode: roomCode,
-      boardSize: boardSize,
-      maxPlayers: maxPlayers,
-    );
+    try {
+      await svc.connect(
+        playerId: playerId,
+        displayName: displayName,
+        roomCode: roomCode,
+        boardSize: boardSize,
+        maxPlayers: maxPlayers,
+      );
+    } catch (e) {
+      if (state.status == WiredStatus.waking) {
+        state = state.copyWith(
+            status: WiredStatus.error, errorMessage: 'CONNECTION_FAILED');
+      }
+      return;
+    }
 
-    // Only advance to waiting if we're still in the initial connecting phase.
-    // If the server was sleeping, _onError flips status to waking and the
-    // transition to waiting happens later via _onLog('UPLINK_ESTABLISHED').
-    if (state.status == WiredStatus.connecting) {
+    // Transition waking → waiting is handled by _onLog('UPLINK_ESTABLISHED').
+    // Only advance here if the first try succeeded synchronously and the
+    // log handler hasn't already moved us to waiting.
+    if (state.status == WiredStatus.waking) {
       state = state.copyWith(status: WiredStatus.waiting);
     }
   }
@@ -162,7 +170,7 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     _transport = svc;
 
     state = WiredGameState(
-      status: WiredStatus.connecting,
+      status: WiredStatus.waking,
       role: WiredRole.client,
       localPlayerId: playerId,
       roomCode: roomCode.toUpperCase(),
@@ -170,13 +178,21 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
 
     _subscribeToTransport();
 
-    await svc.connect(
-      playerId: playerId,
-      displayName: displayName,
-      roomCode: roomCode.toUpperCase(),
-    );
+    try {
+      await svc.connect(
+        playerId: playerId,
+        displayName: displayName,
+        roomCode: roomCode.toUpperCase(),
+      );
+    } catch (e) {
+      if (state.status == WiredStatus.waking) {
+        state = state.copyWith(
+            status: WiredStatus.error, errorMessage: 'CONNECTION_FAILED');
+      }
+      return;
+    }
 
-    if (state.status == WiredStatus.connecting) {
+    if (state.status == WiredStatus.waking) {
       state = state.copyWith(status: WiredStatus.waiting);
     }
   }
@@ -212,9 +228,11 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
   }
 
   void _onLog(String line) {
-    // When a wake retry successfully connects, transition from waking → waiting.
+    // Socket connected — show a brief "CONNECTING_TO_SERVER" spinner before
+    // moving to the waiting room. The provider's post-connect check handles
+    // the final waking → waiting transition after svc.connect() returns.
     if (line == 'UPLINK_ESTABLISHED' && state.status == WiredStatus.waking) {
-      state = state.copyWith(status: WiredStatus.waiting);
+      state = state.copyWith(status: WiredStatus.connecting);
     }
     _addLog(line);
   }

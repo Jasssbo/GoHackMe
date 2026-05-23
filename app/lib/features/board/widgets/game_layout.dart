@@ -205,15 +205,15 @@ class _GameLayoutState extends State<GameLayout> {
   @override
   Widget build(BuildContext context) {
     final isMyTurn = widget.state.currentPlayerId == widget.localPlayerId;
-    // Show attacks whenever it's my turn – player decides attack before placing.
     final inAttack = isMyTurn && widget.state.phase == GamePhase.attack;
     final isPicking = _pendingPositionAttack != null;
+    final size = MediaQuery.sizeOf(context);
+    final isLandscape = size.width > size.height * 1.2;
 
     return SafeArea(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── Status strip ────────────────────────────────────────
           GameStatusStrip(
             state: widget.state,
             localPlayerId: widget.localPlayerId,
@@ -221,177 +221,229 @@ class _GameLayoutState extends State<GameLayout> {
             onExit: widget.onExit,
             turnSecondsLeft: _turnSecondsLeft,
           ),
+          Expanded(
+            child: isLandscape
+                ? _buildLandscapeBody(isMyTurn, inAttack, isPicking)
+                : _buildPortraitBody(isMyTurn, inAttack, isPicking),
+          ),
+        ],
+      ),
+    );
+  }
 
-          // ── Position-pick hint banner ────────────────────────
-          if (isPicking)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: CyberpunkColors.amber.withValues(alpha: 0.07),
-                border: Border(
-                  bottom: BorderSide(
-                    color: CyberpunkColors.amber.withValues(alpha: 0.25),
-                    width: 1,
-                  ),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Text(
-                    '>> ${_pendingPositionAttack!.type.name.toUpperCase()}  ·  TAP_TARGET_NODE',
-                    style: TextStyle(
-                      color: CyberpunkColors.amber.withValues(alpha: 0.95),
-                      fontSize: 9,
-                      letterSpacing: 1.2,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                  const Spacer(),
-                  InkWell(
-                    onTap: () => setState(() => _pendingPositionAttack = null),
-                    child: Text(
-                      '[ABORT]',
-                      style: TextStyle(
-                        color: CyberpunkColors.textSecondary.withValues(alpha: 0.80),
-                        fontSize: 9,
-                        letterSpacing: 1,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                  ),
-                ],
+  List<Widget> _buildBanners(bool isMyTurn) {
+    final isPicking = _pendingPositionAttack != null;
+    return [
+      if (isPicking)
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: CyberpunkColors.amber.withValues(alpha: 0.07),
+            border: Border(
+              bottom: BorderSide(
+                color: CyberpunkColors.amber.withValues(alpha: 0.25),
+                width: 1,
               ),
             ),
-
-          // ── Backdoor hint banner ──────────────────────────────
-          if (widget.state.phase == GamePhase.hijackedVictimPlacement &&
-              isMyTurn)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: CyberpunkColors.error.withValues(alpha: 0.07),
-                border: Border(
-                  left: BorderSide(
-                    color: CyberpunkColors.error.withValues(alpha: 0.55),
-                    width: 2,
-                  ),
-                ),
-              ),
-              child: const Text(
-                '>> BACKDOOR  ·  HIJACK_ACTIVE  ·  TAP TO PLACE ENEMY NODE',
+          ),
+          child: Row(
+            children: [
+              Text(
+                '>> ${_pendingPositionAttack!.type.name.toUpperCase()}  ·  TAP_TARGET_NODE',
                 style: TextStyle(
-                  color: CyberpunkColors.error,
+                  color: CyberpunkColors.amber.withValues(alpha: 0.95),
                   fontSize: 9,
                   letterSpacing: 1.2,
                   fontFamily: 'monospace',
                 ),
               ),
-            ),
-
-          // ── Timebomb countdown banner ─────────────────────────
-          if (_isUnderTimebomb)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: CyberpunkColors.error.withValues(alpha: 0.10),
-                border: Border(
-                  bottom: BorderSide(
-                    color: CyberpunkColors.error.withValues(alpha: 0.55),
-                    width: 1,
+              const Spacer(),
+              InkWell(
+                onTap: () => setState(() => _pendingPositionAttack = null),
+                child: Text(
+                  '[ABORT]',
+                  style: TextStyle(
+                    color: CyberpunkColors.error,
+                    fontSize: 9,
+                    letterSpacing: 1,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
-              child: Row(
-                children: [
-                  Text(
-                    '>> PSYCHE  ·  ACT_OR_SKIP',
-                    style: TextStyle(
-                      color: CyberpunkColors.error.withValues(alpha: 0.95),
-                      fontSize: 9,
-                      letterSpacing: 1.2,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    '[$_timebombSecondsLeft]',
-                    style: const TextStyle(
-                      color: CyberpunkColors.error,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          // ── Board (top, ~60% of remaining space) ─────────────
-          Expanded(
-            flex: 3,
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: Padding(
-                  padding: const EdgeInsets.all(6),
-                  child: BoardWidget(
-                    board: widget.state.board,
-                    boardSize: widget.state.board.size,
-                    lastPlaced: widget.lastPlaced,
-                    activePlayerColor: widget.state.currentPlayerColor(
-                        widget.state.currentPlayerId),
-                    onTap: isMyTurn &&
-                            (widget.state.phase == GamePhase.attack ||
-                                widget.state.phase ==
-                                    GamePhase.hijackedVictimPlacement)
-                        ? _onBoardTap
-                        : null,
-                  ),
-                ),
+            ],
+          ),
+        ),
+      if (widget.state.phase == GamePhase.hijackedVictimPlacement && isMyTurn)
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: CyberpunkColors.error.withValues(alpha: 0.07),
+            border: Border(
+              left: BorderSide(
+                color: CyberpunkColors.error.withValues(alpha: 0.55),
+                width: 2,
               ),
             ),
           ),
-
-          const PanelDivider(),
-
-          // ── Bottom half: terminal (left) | attacks/status (right) ──
-          Expanded(
-            flex: 2,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Terminal log + attack codex
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const PanelHeader('// SIGNAL_LOG'),
-                      const PanelDivider(),
-                      Expanded(child: GameTerminalLog(lines: widget.logLines)),
-                      if (widget.onChatSend != null) ...[
-                        const PanelDivider(),
-                        _ChatInput(onSend: widget.onChatSend!),
-                      ],
-                      const PanelDivider(),
-                      const AttackCodex(),
-                    ],
-                  ),
+          child: const Text(
+            '>> BACKDOOR  ·  HIJACK_ACTIVE  ·  TAP TO PLACE ENEMY NODE',
+            style: TextStyle(
+              color: CyberpunkColors.error,
+              fontSize: 9,
+              letterSpacing: 1.2,
+              fontFamily: 'monospace',
+            ),
+          ),
+        ),
+      if (_isUnderTimebomb)
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: CyberpunkColors.error.withValues(alpha: 0.10),
+            border: Border(
+              bottom: BorderSide(
+                color: CyberpunkColors.error.withValues(alpha: 0.55),
+                width: 1,
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              Text(
+                '>> PSYCHE  ·  ACT_OR_SKIP',
+                style: TextStyle(
+                  color: CyberpunkColors.error.withValues(alpha: 0.95),
+                  fontSize: 9,
+                  letterSpacing: 1.2,
+                  fontFamily: 'monospace',
                 ),
-                // Vertical separator
-                Container(width: 1, color: const Color(0xFF0C1814)),
-                // Attacks / status + player list
-                GameSidePanel(
+              ),
+              const Spacer(),
+              Text(
+                '[$_timebombSecondsLeft]',
+                style: const TextStyle(
+                  color: CyberpunkColors.error,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ],
+          ),
+        ),
+    ];
+  }
+
+  Widget _buildBoardWidget(bool isMyTurn) {
+    return Center(
+      child: AspectRatio(
+        aspectRatio: 1,
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: BoardWidget(
+            board: widget.state.board,
+            boardSize: widget.state.board.size,
+            lastPlaced: widget.lastPlaced,
+            activePlayerColor: widget.state.currentPlayerColor(
+                widget.state.currentPlayerId),
+            onTap: isMyTurn &&
+                    (widget.state.phase == GamePhase.attack ||
+                        widget.state.phase ==
+                            GamePhase.hijackedVictimPlacement)
+                ? _onBoardTap
+                : null,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTerminalPanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const PanelHeader('// SIGNAL_LOG'),
+        const PanelDivider(),
+        Expanded(child: GameTerminalLog(lines: widget.logLines)),
+        if (widget.onChatSend != null) ...[
+          const PanelDivider(),
+          _ChatInput(onSend: widget.onChatSend!),
+        ],
+        const PanelDivider(),
+        const AttackCodex(),
+      ],
+    );
+  }
+
+  Widget _buildPortraitBody(bool isMyTurn, bool inAttack, bool isPicking) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ..._buildBanners(isMyTurn),
+        Expanded(flex: 3, child: _buildBoardWidget(isMyTurn)),
+        const PanelDivider(),
+        Expanded(
+          flex: 2,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: _buildTerminalPanel()),
+              Container(width: 1, color: const Color(0xFF0C1814)),
+              GameSidePanel(
+                state: widget.state,
+                localPlayerId: widget.localPlayerId,
+                inAttack: inAttack && !isPicking,
+                onAttack: widget.onAttack,
+                onPickPosition: _onPickPosition,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLandscapeBody(bool isMyTurn, bool inAttack, bool isPicking) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          flex: 3,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ..._buildBanners(isMyTurn),
+              Expanded(child: _buildBoardWidget(isMyTurn)),
+            ],
+          ),
+        ),
+        Container(width: 1, color: const Color(0xFF0C1814)),
+        Expanded(
+          flex: 2,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                flex: 3,
+                child: GameSidePanel(
                   state: widget.state,
                   localPlayerId: widget.localPlayerId,
                   inAttack: inAttack && !isPicking,
                   onAttack: widget.onAttack,
                   onPickPosition: _onPickPosition,
+                  fillWidth: true,
                 ),
-              ],
-            ),
+              ),
+              const PanelDivider(),
+              Expanded(
+                flex: 2,
+                child: _buildTerminalPanel(),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -472,7 +524,7 @@ class GameStatusStrip extends StatelessWidget {
           if (onExit != null)
             _StripButton(
               label: 'EXIT',
-              color: CyberpunkColors.textSecondary,
+              color: Colors.white,
               onTap: onExit!,
             ),
         ],
@@ -524,8 +576,8 @@ class _StripButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
-          border: Border.all(color: color.withValues(alpha: 0.70), width: 1),
-          color: color.withValues(alpha: 0.10),
+          border: Border.all(color: color, width: 1),
+          color: color.withValues(alpha: 0.18),
         ),
         child: Text(
           label,
@@ -549,6 +601,9 @@ class GameSidePanel extends StatelessWidget {
   final bool inAttack;
   final void Function(AttackAction) onAttack;
   final void Function(AttackAction partial) onPickPosition;
+  /// When true the panel expands to fill its parent's width instead of using
+  /// the default fixed [context.s(180)] — used in the landscape layout.
+  final bool fillWidth;
 
   const GameSidePanel({
     super.key,
@@ -557,12 +612,13 @@ class GameSidePanel extends StatelessWidget {
     required this.inAttack,
     required this.onAttack,
     required this.onPickPosition,
+    this.fillWidth = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: context.s(180),
+      width: fillWidth ? null : context.s(180),
       decoration: const BoxDecoration(
         color: Color(0xFF050D15),
       ),
@@ -792,10 +848,11 @@ class _AttackCodexState extends State<AttackCodex> {
                               child: Text(
                                 '[X]',
                                 style: TextStyle(
-                                  color: CyberpunkColors.textDim,
+                                  color: CyberpunkColors.error,
                                   fontSize: 14,
                                   letterSpacing: 1,
                                   fontFamily: 'monospace',
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
@@ -898,7 +955,7 @@ class _AttackCodexState extends State<AttackCodex> {
             const Text(
               '[+]',
               style: TextStyle(
-                color: CyberpunkColors.textDim,
+                color: CyberpunkColors.cyanDim,
                 fontSize: 9,
                 letterSpacing: 1,
                 fontFamily: 'monospace',
@@ -1228,13 +1285,14 @@ class AsciiTargetDialog extends StatelessWidget {
             const SizedBox(height: 8),
             InkWell(
               onTap: () => Navigator.pop(context),
-              child: Text(
+              child: const Text(
                 '  [X]  ABORT',
                 style: TextStyle(
-                  color: CyberpunkColors.textSecondary.withValues(alpha: 0.75),
+                  color: Colors.white,
                   fontSize: 9,
                   letterSpacing: 1.2,
                   fontFamily: 'monospace',
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
@@ -1276,8 +1334,8 @@ class GameTerminalLog extends StatelessWidget {
               final text = afterPrefix.substring(sepIdx + 1);
               final timestamp =
                   contentIdx >= 0 ? line.substring(0, contentIdx + 1) : '';
-              return RichText(
-                text: TextSpan(
+              return Text.rich(
+                TextSpan(
                   style: const TextStyle(
                     fontSize: 8.5,
                     fontFamily: 'monospace',

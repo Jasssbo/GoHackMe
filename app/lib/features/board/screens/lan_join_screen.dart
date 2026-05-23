@@ -69,7 +69,7 @@ class _LanJoinScreenState extends ConsumerState<LanJoinScreen> {
                       child: const Text(
                         '< BACK',
                         style: TextStyle(
-                          color: CyberpunkColors.cyanDim,
+                          color: Colors.white,
                           fontSize: 10,
                           letterSpacing: 2,
                           fontFamily: 'monospace',

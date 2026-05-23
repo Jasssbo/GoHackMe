@@ -399,12 +399,12 @@ class _WaitingPanel extends StatelessWidget {
               child: OutlinedButton(
                 onPressed: onBack,
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: CyberpunkColors.textDim,
+                  foregroundColor: Colors.white,
                   side: BorderSide(
-                    color: CyberpunkColors.textDim.withValues(alpha: 0.4),
+                    color: Colors.white.withValues(alpha: 0.45),
                   ),
                 ),
-                child: const Text('ABORT'),
+                child: const Text('< BACK'),
               ),
             ),
           ],

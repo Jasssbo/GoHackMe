@@ -255,7 +255,7 @@ class _LobbyBrowserScreenState extends State<_LobbyBrowserScreen> {
                 IconButton(
                   onPressed: widget.onBack,
                   icon: const Icon(Icons.arrow_back_ios_new, size: 14),
-                  color: _kIndigo,
+                  color: Colors.white,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
                 ),
@@ -576,11 +576,11 @@ class _HostLobbyPanel extends StatelessWidget {
               onTap: onBack,
               child: Row(children: [
                 const Icon(Icons.arrow_back_ios_new,
-                    size: 12, color: _kIndigoDim),
+                    size: 12, color: Colors.white),
                 const SizedBox(width: 6),
                 Text('BACK',
                     style: TextStyle(
-                        color: _kIndigoDim,
+                        color: Colors.white,
                         fontSize: 9,
                         fontFamily: 'monospace')),
               ]),
@@ -698,6 +698,28 @@ class _HostLobbyPanel extends StatelessWidget {
                 ),
               ),
             ),
+            if (!canStart) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: onBack,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: CyberpunkColors.error,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: const RoundedRectangleBorder(),
+                  ),
+                  child: const Text(
+                    '[ABORT]',
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        letterSpacing: 2),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -732,11 +754,11 @@ class _GuestWaitingPanel extends StatelessWidget {
               onTap: onBack,
               child: Row(children: [
                 const Icon(Icons.arrow_back_ios_new,
-                    size: 12, color: _kIndigoDim),
+                    size: 12, color: Colors.white),
                 const SizedBox(width: 6),
                 Text('BACK',
                     style: TextStyle(
-                        color: _kIndigoDim,
+                        color: Colors.white,
                         fontSize: 9,
                         fontFamily: 'monospace')),
               ]),
@@ -774,7 +796,27 @@ class _GuestWaitingPanel extends StatelessWidget {
                     fontFamily: 'monospace'),
               ),
             ]),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: onBack,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: CyberpunkColors.error,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: const RoundedRectangleBorder(),
+                ),
+                child: const Text(
+                  '[ABORT]',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      letterSpacing: 2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
             if (players.isNotEmpty) ...[
               Text('PLAYERS',
                   style: TextStyle(

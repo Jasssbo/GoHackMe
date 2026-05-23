@@ -420,7 +420,7 @@ class _DialogShell extends StatelessWidget {
                             child: Text(
                               '[X]',
                               style: TextStyle(
-                                color: CyberpunkColors.textDim.withValues(alpha: 0.55),
+                                color: Colors.white,
                                 fontSize: 10,
                                 fontFamily: 'monospace',
                               ),

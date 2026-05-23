@@ -17,9 +17,11 @@ class UiScale extends InheritedWidget {
 
   final double scale;
 
-  // Baseline shortest-side in logical pixels: all typical phones are at or
-  // below this, so scale stays at 1.0 on mobile and grows on large screens.
-  static const _kBaselineSide = 720.0;
+  // Baseline shortest-side in logical pixels: phones are at or below this,
+  // so scale stays at 1.0 on mobile and grows on larger screens.
+  // 480 keeps all phones (≤ 480 px short side) at 1.0 while giving a
+  // 720 p desktop window a 1.5× scale and a 1080 p window the 1.8× cap.
+  static const _kBaselineSide = 480.0;
 
   /// Returns the active UI scale factor (falls back to 1.0 if not in tree).
   static double of(BuildContext context) =>
