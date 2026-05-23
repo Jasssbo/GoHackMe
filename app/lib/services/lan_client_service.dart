@@ -176,8 +176,21 @@ class LanClientService implements IGameTransport {
 
   // ── Incoming data ─────────────────────────────────────────────────────────
 
+  /// Maximum bytes buffered before treating the connection as hostile and
+  /// dropping it — mirrors the host-side _kMaxLanMessageBytes guard.
+  static const _kMaxBufBytes = 8192;
+
   void _onData(List<int> data) {
     _buf.write(utf8.decode(data, allowMalformed: true));
+
+    // Guard against a rogue host sending a giant payload with no newline.
+    if (_buf.length > _kMaxBufBytes) {
+      _buf.clear();
+      _errorCtrl.add('HOST_MESSAGE_TOO_LARGE');
+      dispose();
+      return;
+    }
+
     final raw = _buf.toString();
     final lines = raw.split('\n');
     _buf.clear();

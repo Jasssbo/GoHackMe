@@ -35,6 +35,7 @@ void main() async {
       )
       .addMiddleware(_corsMiddleware())
       .addMiddleware(_securityHeaders())
+      .addMiddleware(_httpRateLimit())
       .addHandler(router.call);
 
   final server = await shelf_io.serve(handler, '0.0.0.0', port);
@@ -82,5 +83,56 @@ Middleware _securityHeaders() => (innerHandler) => (request) async {
       return response.change(headers: {
         'X-Content-Type-Options': 'nosniff',
         'Cache-Control': 'no-store',
+        // HSTS: instruct clients to always use HTTPS for the next year.
+        'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+        // Remove stack fingerprint — no need to advertise the framework.
+        'X-Powered-By': '',
       });
     };
+
+/// Per-IP rate limiter for HTTP endpoints (OWASP A04 — Resource Exhaustion).
+///
+/// Allows up to [_kHttpRateLimit] requests per [_kHttpRateWindow] per unique
+/// IP address.  WebSocket upgrades are excluded (they have their own limit in
+/// ws_handler.dart).
+///
+/// The /rooms endpoint is polled by every lobby client every ~4 s, so the
+/// window is deliberately generous — this only blocks aggressive scrapers.
+const _kHttpRateLimit = 60; // requests
+const _kHttpRateWindow = Duration(minutes: 1);
+
+Middleware _httpRateLimit() {
+  // ip → list of request timestamps within the current window
+  final counters = <String, List<DateTime>>{};
+
+  return (innerHandler) => (request) async {
+        // Only rate-limit non-WebSocket HTTP requests.
+        if (request.headers['upgrade']?.toLowerCase() == 'websocket') {
+          return innerHandler(request);
+        }
+
+        final ip = request.headers['cf-connecting-ip'] ??
+            (request.headers['x-forwarded-for']?.split(',').last.trim()) ??
+            (request.context['shelf.io.connection_info'] as HttpConnectionInfo?)
+                ?.remoteAddress
+                .address ??
+            'unknown';
+
+        final now = DateTime.now();
+        final timestamps = counters.putIfAbsent(ip, () => []);
+        // Evict entries outside the current window.
+        timestamps.removeWhere((t) => now.difference(t) > _kHttpRateWindow);
+
+        if (timestamps.length >= _kHttpRateLimit) {
+          return Response(429,
+              body: '{"error":"RATE_LIMITED"}',
+              headers: {
+                'content-type': 'application/json',
+                'Retry-After': '60',
+              });
+        }
+
+        timestamps.add(now);
+        return innerHandler(request);
+      };
+}

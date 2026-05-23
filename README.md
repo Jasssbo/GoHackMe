@@ -35,7 +35,7 @@ App ──WebSocket──► Dart server (Render.com)
 
 **Flow for a host:**
 1. Taps **Host** → app generates a 6-char room code and opens a WebSocket to the server sending `joinRoom`.
-2. The waiting room shows the code and a live player list.
+2. The waiting room immediately shows **WAKING UP SERVER…** (Render.com cold-start detection), then **CONNECTING TO SERVER…** once the socket handshake succeeds, then the waiting room.
 3. Once ≥ 2 players have joined the host can tap **START GAME** (or the room auto-starts when full).
 
 **Flow for a guest:**
@@ -157,6 +157,24 @@ cd server && dart test
 - **`go_engine`** — pure Dart, zero Flutter deps. Go rules (superko, area scoring), the attack system, and the shared `GameMessage` wire protocol.
 - **`server`** — server-authoritative Shelf/WebSocket server. Validates every move via `GameEngine`, broadcasts full `GameState` snapshots, manages rooms. Runs in Docker.
 - **`app`** — Flutter with Riverpod state management, go_router navigation, and a custom cyberpunk theme.
+
+## Security
+
+The internet-facing server (Wired mode) applies defence-in-depth:
+
+| Layer | Detail |
+|---|---|
+| **Transport** | TLS 1.3 + AES-256-GCM on all connections (`wss://`) |
+| **Geolocation** | Player IPs sent to ip-api.com over HTTPS; `CF-Connecting-IP` used for accurate IP resolution |
+| **Connection cap** | Max 200 WebSocket connections; max 50 rooms |
+| **Message size** | WebSocket: 4 KB / LAN TCP: 8 KB hard cap per message |
+| **Rate limiting** | 20 WebSocket msg/s per connection; 60 HTTP req/min per IP |
+| **Input validation** | `playerId` validated as UUID v4; `roomId` as `[A-Za-z0-9\-]{4,64}` |
+| **Identity** | Server-verified player identity on all game actions — client cannot spoof |
+| **Headers** | `X-Content-Type-Options`, `Strict-Transport-Security`, `Cache-Control: no-store` |
+| **Secrets** | Server URL injected at compile time (`--dart-define`); keystore excluded via `.gitignore` |
+
+LAN mode runs on a trusted local network. Rooms are protected against trivial UDP beacon spoofing via HMAC-SHA256 beacon signatures.
 
 ## License
 

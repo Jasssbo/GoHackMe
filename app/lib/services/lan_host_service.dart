@@ -10,6 +10,11 @@ import 'connected_player.dart';
 
 // ── _ClientConnection (internal) ───────────────────────────────────────────
 
+/// Maximum bytes buffered per TCP connection before the connection is dropped.
+/// Prevents a malicious LAN peer from exhausting host memory by sending a
+/// huge payload with no newline terminator.
+const _kMaxLanMessageBytes = 8192;
+
 class _ClientConn {
   final Socket socket;
   String? playerId;
@@ -19,8 +24,10 @@ class _ClientConn {
   _ClientConn(this.socket);
 
   /// Appends incoming bytes and drains complete newline-terminated messages.
-  Iterable<String> feed(List<int> data) {
+  /// Returns null if the buffer limit is exceeded (caller must drop the conn).
+  Iterable<String>? feed(List<int> data) {
     _buf.write(utf8.decode(data, allowMalformed: true));
+    if (_buf.length > _kMaxLanMessageBytes) return null; // signal overflow
     final raw = _buf.toString();
     final lines = raw.split('\n');
     _buf.clear();
@@ -143,7 +150,14 @@ class LanHostService implements IGameTransport {
 
     socket.listen(
       (data) {
-        for (final line in conn.feed(data)) {
+        final lines = conn.feed(data);
+        if (lines == null) {
+          // Buffer overflow: drop the connection to prevent memory exhaustion.
+          _log('TCP_OVERFLOW: dropping connection from ${socket.remoteAddress.address}');
+          socket.destroy();
+          return;
+        }
+        for (final line in lines) {
           _handleLine(conn, line);
         }
       },
@@ -195,7 +209,11 @@ class LanHostService implements IGameTransport {
       case MessageType.performAttack:
         if (!_isCurrentPlayer(pid)) return;
         try {
-          final a = AttackAction.fromJson(msg.payload);
+          // Overwrite attackerPlayerId with the socket-verified pid to prevent
+          // a client from attributing the attack to a different player identity.
+          final rawAction = Map<String, dynamic>.from(msg.payload)
+            ..['attackerPlayerId'] = pid;
+          final a = AttackAction.fromJson(rawAction);
           _applyResult(GameEngine.launchAttack(_state!, a));
         } catch (e) {
           _log('ATTACK_PARSE_ERROR: $e');

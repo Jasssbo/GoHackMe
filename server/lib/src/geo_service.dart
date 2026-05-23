@@ -23,8 +23,9 @@ class GeoResult {
 Future<GeoResult?> geolocateIp(String ip) async {
   if (_isPrivateIp(ip)) return null;
   try {
+    // HTTPS — prevents MITM from reading player IPs or injecting fake coordinates.
     final uri = Uri.parse(
-        'http://ip-api.com/json/$ip?fields=status,lat,lon,city,country');
+        'https://ip-api.com/json/$ip?fields=status,lat,lon,city,country');
     final res = await http.get(uri).timeout(const Duration(seconds: 5));
     if (res.statusCode != 200) return null;
     final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -41,11 +42,24 @@ Future<GeoResult?> geolocateIp(String ip) async {
 }
 
 /// Returns the best-effort client IP from [headers].
-/// Prefers X-Forwarded-For (set by Render.com / reverse proxies).
+///
+/// Priority:
+/// 1. `CF-Connecting-IP` — set by Cloudflare to the real end-user IP.
+/// 2. Last entry of `X-Forwarded-For` — when behind a trusted reverse proxy
+///    (Render.com / Cloudflare) the proxy *appends* the real IP at the end;
+///    taking `.last` prevents a client from spoofing their geolocation by
+///    injecting a fake IP as the first XFF entry.
+/// 3. Raw TCP remote address (LAN / local dev).
 String extractIp(Map<String, String> headers, HttpConnectionInfo? conn) {
+  // Cloudflare sets this header to the real client IP — most reliable.
+  final cfIp = headers['cf-connecting-ip'];
+  if (cfIp != null && cfIp.isNotEmpty) return cfIp.trim();
+
+  // Fallback: take the LAST (rightmost) entry added by the outermost trusted
+  // proxy rather than the first (which the client can forge).
   final forwarded = headers['x-forwarded-for'];
   if (forwarded != null && forwarded.isNotEmpty) {
-    return forwarded.split(',').first.trim();
+    return forwarded.split(',').last.trim();
   }
   return conn?.remoteAddress.address ?? '';
 }

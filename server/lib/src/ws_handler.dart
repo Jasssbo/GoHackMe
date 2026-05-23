@@ -218,8 +218,9 @@ Handler buildWsHandler(RoomManager roomManager) {
             );
             return;
           }
-          // Only accept maxPlayers from the client before the game has started.
-          if (!room.isStarted) room.maxPlayers = maxPlayers;
+          // Only the room creator (host = first joiner) may configure maxPlayers.
+          // Subsequent players cannot override the host's room settings.
+          if (!room.isStarted && room.playerCount == 0) room.maxPlayers = maxPlayers;
           final error = room.addPlayer(
             Player(id: playerId, displayName: sanitisedName),
             channel,

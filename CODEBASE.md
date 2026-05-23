@@ -181,7 +181,7 @@ Client ──GameMessage──► ws_handler ──route──► GameRoom
 
 ### 3.3 Security model
 
-`ws_handler` applies six guards on every message before it touches game logic:
+`ws_handler` applies six guards on every WebSocket message before it touches game logic:
 
 1. **Connection cap** — max 200 concurrent WebSocket connections. New connections
    beyond the cap are rejected with `SERVER_FULL` before any state is allocated.
@@ -196,6 +196,22 @@ Client ──GameMessage──► ws_handler ──route──► GameRoom
    leaks if a client sends two joins before the first room can be cleaned up.
 
 The `_validatePlayerAndRoom()` helper consolidates rules 4 and 5.
+
+Additionally, the HTTP pipeline (`bin/server.dart`) applies three middleware layers
+before any request reaches the router:
+
+- **CORS** — `Access-Control-Allow-Origin: *` (public game server; auth is at application layer).
+- **Security headers** — `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`,
+  `Strict-Transport-Security: max-age=31536000; includeSubDomains`. `X-Powered-By`
+  is suppressed to avoid stack fingerprinting.
+- **HTTP rate limit** — 60 requests/minute per IP across `/rooms`, `/stats`, `/health`.
+  Returns HTTP 429 with `Retry-After: 60` on breach. WebSocket upgrades are excluded
+  (they have their own per-connection limits above).
+
+Geolocation (for the lobby globe pin) queries ip-api.com over HTTPS. The server
+checks `CF-Connecting-IP` first (tamper-proof Cloudflare header) then falls back
+to the rightmost `X-Forwarded-For` entry, preventing clients from spoofing their
+geo-pin by injecting a forged leftmost XFF value.
 
 **Host-only force-start:** `GameRoom.forceStart({required String requesterId})`
 checks that the caller is the room's host (the first player to join). Any guest
@@ -237,9 +253,27 @@ Rooms are also reaped after 2 hours of inactivity regardless of player count.
 
 ### 3.5 Reconnection — WebSocket mode
 
-When a client's WebSocket drops, `GameSyncService` automatically retries the
+When a client's WebSocket drops, `WiredServerService` automatically retries the
 full `connect()` call (including `joinRoom`) up to **5 times** with linear
 backoff: 3 s, 6 s, 9 s, 12 s, 15 s.
+
+### 3.6 Wired connection state machine
+
+`WiredGameNotifier` transitions through three visible states before the waiting room:
+
+```
+User taps Host / Join
+  └─► status = waking   → shows WAKING_UP_SERVER… panel immediately
+        │  (Render.com cold-start: _openSocket() retries every 5 s up to 8 times)
+        │
+        └─► socket handshake succeeds → UPLINK_ESTABLISHED log event
+              └─► status = connecting  → shows brief CONNECTING_TO_SERVER… spinner
+                    └─► WiredServerService.connect() returns
+                          └─► status = waiting  → lobby / guest wait panel
+```
+
+This ensures the user always sees feedback from the first tap, even during a
+Render.com cold-start that can take 10–30 seconds.
 
 ```
 WS drops (onDone / onError)
@@ -408,6 +442,12 @@ The scanner discards any beacon whose tag doesn't match before parsing any
 fields. A device that hasn't reverse-engineered the app binary cannot forge a
 valid tag. (Replay attacks are harmless — the TCP connection always goes to
 the actual UDP sender address, not to an address in the payload.)
+
+**TCP buffer guard:** each client connection buffers incoming bytes in a
+`StringBuffer` until a newline terminates a message. The buffer is capped at
+`_kMaxLanMessageBytes = 8 192` bytes. If a peer sends a frameless stream
+beyond this limit the socket is destroyed immediately, preventing memory
+exhaustion on the host device.
 
 ```
 Host device                         Client device
@@ -597,12 +637,15 @@ cancels the timer, and immediately sends a full `gameStateUpdate(log: 'RECONNECT
 
 | | LAN | Wired |
 |---|---|---|
-| Transport | TCP over local subnet | WebSocket over TLS (internet) |
+| Transport | TCP over local subnet | WebSocket over TLS 1.3 (internet) |
 | Discovery | UDP beacon (same subnet) | `GET /rooms` live lobby browser + 6-char code |
 | Server authority | Host device runs `GameEngine` locally | Dedicated server runs `GameEngine` |
 | External dependency | None | Render.com (or any Docker host) |
 | NAT / firewall sensitivity | None | None — client always initiates outbound WS |
-| Encryption | None (trusted LAN assumed) | TLS (wss://) mandatory on Render.com |
+| Encryption | None (trusted LAN assumed) | TLS mandatory (`wss://`) |
+| Message size cap | 8 KB (TCP buffer guard) | 4 KB (WebSocket guard) |
+| Rate limiting | None (trusted peers) | 20 msg/s WebSocket + 60 HTTP req/min |
+| Identity verification | Socket-bound `playerId` | Socket-bound `playerId` + UUID v4 regex |
 
 
 
@@ -651,6 +694,9 @@ switch (result) {
 
 The server never trusts the `playerId` field in action messages — it uses the
 identity established at `joinRoom` time. The client cannot lie about who it is.
+This applies to both the Wired server (`ws_handler.dart`) and the LAN host
+(`lan_host_service.dart`): both overwrite `attackerPlayerId` in `performAttack`
+payloads with the socket-verified identity before passing to the engine.
 
 ### GameState is the full snapshot
 
