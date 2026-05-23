@@ -31,6 +31,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
     'WIRED_LINK  ·  TOPOLOGY PROBE...',
     'SUBNET DISCOVERY  .  .  .  PARTIAL',
     'MEMORY_MAPPED  ·  SECTORS 0-FF  ·  CLEAN',
+    'Tachibana General Laboratories  ·  KNOWLEDGE NAVIGATOR CONNECTED',
     'AUTH_SERVICE  ·  READY',
   ];
   int _bootStep = 0;

@@ -53,6 +53,10 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
   @override
   void dispose() {
     _attackGlitch.dispose();
+    // Ensure the server room is cleaned up whenever this screen leaves the tree,
+    // including Android back-button / system-gesture navigation that bypasses
+    // the in-app exit button.  Safe to call even if already left normally.
+    ref.read(wiredGameProvider.notifier).leave();
     super.dispose();
   }
 

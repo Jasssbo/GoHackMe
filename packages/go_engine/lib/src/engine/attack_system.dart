@@ -55,6 +55,22 @@ class AttackSystem {
         final targetColor =
             state.currentPlayerColor(action.targetPlayerId);
         if (stoneAt != targetColor) return 'NO_ENEMY_STONE_AT_POSITION';
+        // Suicide check: simulate removing the enemy stone first, then verify
+        // that placing the attacker's stone at that position would not be a
+        // suicide (the group must have at least one liberty after captures).
+        final wormAttackerColor =
+            state.currentPlayerColor(action.attackerPlayerId);
+        final boardMinusEnemy =
+            state.board.remove({action.targetPosition!});
+        final wormSuicideCheck = GoRules.validatePlacement(
+          boardMinusEnemy,
+          action.targetPosition!,
+          wormAttackerColor,
+          const [], // no superko check for attack moves
+        );
+        if (wormSuicideCheck == 'SUICIDE_NOT_ALLOWED') {
+          return 'WORM_WOULD_SUICIDE';
+        }
 
       case AttackType.knightseye:
         if (action.targetPosition == null) return 'POSITION_REQUIRED';
