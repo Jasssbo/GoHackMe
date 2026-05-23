@@ -49,12 +49,6 @@ class AttackCard {
   static const all = [
     // Sorted ascending by subnetCost.
     AttackCard(
-      type: AttackType.ddos,
-      subnetCost: 3,
-      terminalName: 'DDOS.sh',
-      description: 'Flood target node. Target skips next placement.',
-    ),
-    AttackCard(
       type: AttackType.backdoor,
       subnetCost: 3,
       terminalName: 'BACKDOOR.sh',
@@ -89,6 +83,12 @@ class AttackCard {
       subnetCost: 6,
       terminalName: 'MITM.sh',
       description: 'Hijack next turn. You place the enemy stone; they skip attacks.',
+    ),
+    AttackCard(
+      type: AttackType.ddos,
+      subnetCost: 7,
+      terminalName: 'DDOS.sh',
+      description: 'Flood target node. Target skips next placement.',
     ),
     AttackCard(
       type: AttackType.psyche,

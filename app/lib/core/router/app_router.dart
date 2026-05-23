@@ -66,6 +66,7 @@ final appRouter = GoRouter(
         return LocalGameScreen(
           boardSize: (extras?['boardSize'] as int?) ?? 9,
           difficulty: difficulty,
+          botCount: (extras?['botCount'] as int?) ?? 1,
         );
       },
     ),

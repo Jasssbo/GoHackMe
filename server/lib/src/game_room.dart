@@ -324,6 +324,28 @@ class GameRoom {
     }
   }
 
+  /// Returns the display name of [playerId], or '?' if not found.
+  String playerDisplayName(String playerId) {
+    return _players
+        .firstWhere(
+          (p) => p.id == playerId,
+          orElse: () => Player(id: '', displayName: '?'),
+        )
+        .displayName;
+  }
+
+  /// Broadcasts a chat message from [senderId] to all currently-connected
+  /// players.  Only active connections receive it — late joiners see nothing.
+  void broadcastChat(String senderId, String senderName, String text) {
+    // Strip '>' from senderName so the CHAT> log format stays unambiguous.
+    final safeName = senderName.replaceAll('>', '');
+    _broadcast(GameMessage(
+      type: MessageType.chat,
+      roomId: id,
+      payload: {'senderId': senderId, 'senderName': safeName, 'text': text},
+    ));
+  }
+
   /// Cancels all pending timers.  Called by [RoomManager] when the room is reaped.
   void dispose() {
     _turnTimer?.cancel();

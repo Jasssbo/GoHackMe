@@ -11,18 +11,21 @@ import '../widgets/game_layout.dart';
 
 // ── LocalGameScreen ───────────────────────────────────────────────────────
 
-/// Single-player 1v1 screen where the human faces a local bot.
+/// Single-player solo screen where the human faces 1 or 3 local bots.
 ///
 /// No WebSocket or server needed – the [LocalGameNotifier] drives the entire
-/// game loop including the bot's turns.
+/// game loop including all bot turns.
 class LocalGameScreen extends ConsumerStatefulWidget {
   final int boardSize;
   final BotDifficulty difficulty;
+  /// Number of bot opponents: 1 (1v1) or 3 (1v3).
+  final int botCount;
 
   const LocalGameScreen({
     super.key,
     this.boardSize = 9,
     this.difficulty = BotDifficulty.intermediate,
+    this.botCount = 1,
   });
 
   @override
@@ -50,18 +53,9 @@ class _LocalGameScreenState extends ConsumerState<LocalGameScreen> {
             humanName: auth?.displayName.isNotEmpty == true
                 ? auth!.displayName.toUpperCase()
                 : 'PLAYER_1',
-            botName: _botLabel(widget.difficulty),
+            botCount: widget.botCount,
           );
     });
-  }
-
-  static String _botLabel(BotDifficulty d) {
-    switch (d) {
-      case BotDifficulty.beginner:
-        return 'BOT_v0.1';
-      case BotDifficulty.intermediate:
-        return 'BOT_v0.5';
-    }
   }
 
   @override
@@ -120,7 +114,7 @@ class _LocalGameScreenState extends ConsumerState<LocalGameScreen> {
           humanName: auth?.displayName.isNotEmpty == true
               ? auth!.displayName.toUpperCase()
               : 'PLAYER_1',
-          botName: _botLabel(widget.difficulty),
+          botCount: widget.botCount,
         );
   }
 }

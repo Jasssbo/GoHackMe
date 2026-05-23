@@ -44,7 +44,9 @@ enum MessageType {
   // ── Bidirectional ─────────────────────────────────────────────────────
   ping,
   pong,
-}
+  /// In-game chat message (bidirectional: client sends text, server
+  /// broadcasts with sender identity).
+  chat,}
 
 // ── GameMessage ────────────────────────────────────────────────────────────
 
@@ -192,6 +194,19 @@ class GameMessage {
 
   factory GameMessage.ping() => const GameMessage(type: MessageType.ping);
   factory GameMessage.pong() => const GameMessage(type: MessageType.pong);
+
+  /// Client → Server: send a chat message to the room.
+  factory GameMessage.chat({
+    required String playerId,
+    required String roomId,
+    required String text,
+  }) =>
+      GameMessage(
+        type: MessageType.chat,
+        playerId: playerId,
+        roomId: roomId,
+        payload: {'text': text},
+      );
 
   @override
   String toString() => 'GameMessage(${type.name}, room=$roomId, player=$playerId)';

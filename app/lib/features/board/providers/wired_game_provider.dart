@@ -83,7 +83,8 @@ class WiredGameState {
 // ── WiredGameNotifier ─────────────────────────────────────────────────────
 
 class WiredGameNotifier extends Notifier<WiredGameState> {
-  static const _maxLogLines = 60;
+  // Raised from 60 to 200 to accommodate in-game chat messages.
+  static const _maxLogLines = 200;
 
   IGameTransport? _transport;
   final List<StreamSubscription> _subs = [];
@@ -268,6 +269,14 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     _transport?.dispose();
     _transport = null;
     state = const WiredGameState();
+  }
+
+  /// Sends a chat message to the server (Wired only; no-op on other transports).
+  void sendChatMessage(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    final t = _transport;
+    if (t is WiredServerService) t.sendChatMessage(trimmed);
   }
 
   Future<void> leave() async => _reset();

@@ -26,23 +26,27 @@ final localGameLogProvider =
 
 // ── Local game notifier ───────────────────────────────────────────────────
 
-/// Holds the entire state of a local 1v1 game against the bot.
+/// Holds the entire state of a local solo game against 1 or 3 bots.
 ///
-/// The human player always plays first (index 0, black stones).
-/// The bot plays second (index 1, white stones).
+/// The human player always plays first (index 0).
+/// Bots fill the remaining slots.
 ///
 /// After the human completes their turn (placement → optionally attacks →
-/// end attack phase), the bot move is computed and applied automatically
+/// end attack phase), each bot move is computed and applied automatically
 /// with a short UI delay so the board has time to repaint.
 class LocalGameNotifier extends Notifier<GameState?> {
   static const _humanId = 'human_player';
-  static const _botId = 'bot_player';
   static const _kTurnTimeout = Duration(seconds: 15);
 
   // Prevent concurrent bot turns being queued.
   bool _botTurnPending = false;
   BotDifficulty _difficulty = BotDifficulty.intermediate;
   Timer? _turnTimer;
+
+  /// IDs of all bot players in the current game.
+  List<String> _botIds = ['bot_1'];
+
+  bool _isBot(String playerId) => _botIds.contains(playerId);
 
   @override
   GameState? build() {
@@ -56,14 +60,21 @@ class LocalGameNotifier extends Notifier<GameState?> {
     int boardSize = 9,
     BotDifficulty difficulty = BotDifficulty.intermediate,
     String humanName = 'PLAYER_1',
-    String botName = 'BOT',
+    /// Number of bot opponents.  Supported values: 1 (1v1) or 3 (1v3).
+    int botCount = 1,
   }) {
+    assert(botCount >= 1 && botCount <= 3, 'botCount must be 1, 2 or 3');
     _botTurnPending = false;
     _difficulty = difficulty;
+    _botIds = List.generate(botCount, (i) => 'bot_${i + 1}');
 
+    final botLabels = _makeBotLabels(difficulty, botCount);
     final players = [
       Player(id: _humanId, displayName: humanName),
-      Player(id: _botId, displayName: botName),
+      ...List.generate(
+        botCount,
+        (i) => Player(id: _botIds[i], displayName: botLabels[i]),
+      ),
     ];
 
     final gameState = GameState.newGame(
@@ -75,16 +86,23 @@ class LocalGameNotifier extends Notifier<GameState?> {
 
     ref
         .read(localGameLogProvider.notifier)
-        .append('>> LOCAL GAME STARTED ${boardSize}x$boardSize');
+        .append('>> LOCAL GAME STARTED ${boardSize}x$boardSize  [1v$botCount]');
     ref
         .read(localGameLogProvider.notifier)
-        .append('>> YOU are $humanName (BLACK). BOT is $botName (WHITE).');
+        .append('>> YOU are $humanName. OPPONENTS: ${botLabels.join(', ')}.');
     _resetTurnTimer();
+  }
+
+  /// Generates display names for [botCount] bots at [difficulty].
+  static List<String> _makeBotLabels(BotDifficulty difficulty, int botCount) {
+    final ver = difficulty == BotDifficulty.beginner ? 'v0.1' : 'v0.5';
+    if (botCount == 1) return ['BOT_$ver'];
+    const suffixes = ['A', 'B', 'C'];
+    return List.generate(botCount, (i) => 'BOT_${suffixes[i]}_$ver');
   }
 
   // Expose constants so the screen can reference them.
   String get humanId => _humanId;
-  String get botId => _botId;
 
   // ── Human actions ─────────────────────────────────────────────────────────
 
@@ -172,7 +190,12 @@ class LocalGameNotifier extends Notifier<GameState?> {
             if (skipLog != null) {
               ref.read(localGameLogProvider.notifier).append('DDOS >> $skipLog');
             }
-            if (skipState.currentPlayerId == _botId) {
+            if (skipState.currentPlayerId == _humanId) {
+              // Human's turn after DDOS skip – restart their timer.
+              _resetTurnTimer();
+              return;
+            }
+            if (_isBot(skipState.currentPlayerId)) {
               _scheduleBotTurn();
               return;
             }
@@ -181,9 +204,8 @@ class LocalGameNotifier extends Notifier<GameState?> {
           }
         }
 
-        // Schedule bot turn when it becomes the bot's turn.
-        if (newState.currentPlayerId == _botId &&
-            newState.phase == GamePhase.attack) {
+        // Schedule bot turn when it becomes any bot's turn.
+        if (_isBot(newState.currentPlayerId)) {
           _scheduleBotTurn();
         } else {
           _resetTurnTimer();
@@ -209,34 +231,39 @@ class LocalGameNotifier extends Notifier<GameState?> {
   void _runBotTurn() {
     final current = state;
     if (current == null) return;
-    if (current.currentPlayerId != _botId) return;
+    if (!_isBot(current.currentPlayerId)) return;
     if (current.phase != GamePhase.attack) return;
     if (GameEngine.isGameOver(current)) return;
 
+    final botId = current.currentPlayerId;
+    final botLabel = current.players
+        .firstWhere((p) => p.id == botId)
+        .displayName;
+
     // Bot may choose to attack first (attacks are valid in placement phase).
-    final attack = BotPlayer.pickAttack(current, _botId, _humanId, _difficulty);
+    final attack = BotPlayer.pickAttack(current, botId, _humanId, _difficulty);
     GameState afterAttack = current;
     if (attack != null) {
       final ar = GameEngine.launchAttack(current, attack);
       if (ar case ActionSuccess(:final newState, :final logMessage)) {
         afterAttack = newState;
         if (logMessage != null) {
-          ref.read(localGameLogProvider.notifier).append('BOT >> $logMessage');
+          ref.read(localGameLogProvider.notifier).append('$botLabel >> $logMessage');
         }
         state = afterAttack;
       }
     }
 
     // Bot places stone or passes.
-    final move = BotPlayer.pickMove(afterAttack, _botId, _difficulty);
+    final move = BotPlayer.pickMove(afterAttack, botId, _difficulty);
     if (move == null) {
-      ref.read(localGameLogProvider.notifier).append('BOT >> PASS');
-      _applyResult(GameEngine.pass(afterAttack, _botId));
+      ref.read(localGameLogProvider.notifier).append('$botLabel >> PASS');
+      _applyResult(GameEngine.pass(afterAttack, botId));
     } else {
       ref
           .read(localGameLogProvider.notifier)
-          .append('BOT >> PLACE (${move.x},${move.y})');
-      _applyResult(GameEngine.placeStone(afterAttack, _botId, move));
+          .append('$botLabel >> PLACE (${move.x},${move.y})');
+      _applyResult(GameEngine.placeStone(afterAttack, botId, move));
     }
   }
 

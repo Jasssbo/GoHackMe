@@ -34,6 +34,10 @@ class GameLayout extends StatefulWidget {
   /// Increment this to fire a glitch burst on the parent [GlitchOverlay].
   final ValueNotifier<int>? attackBurst;
 
+  /// Optional: called when the player sends a chat message.
+  /// When null the chat input is hidden (e.g. local / LAN games).
+  final void Function(String)? onChatSend;
+
   const GameLayout({
     super.key,
     required this.state,
@@ -46,6 +50,7 @@ class GameLayout extends StatefulWidget {
     this.onPass,
     this.onExit,
     this.attackBurst,
+    this.onChatSend,
   });
 
   @override
@@ -363,6 +368,10 @@ class _GameLayoutState extends State<GameLayout> {
                       const PanelHeader('// SIGNAL_LOG'),
                       const PanelDivider(),
                       Expanded(child: GameTerminalLog(lines: widget.logLines)),
+                      if (widget.onChatSend != null) ...[
+                        const PanelDivider(),
+                        _ChatInput(onSend: widget.onChatSend!),
+                      ],
                       const PanelDivider(),
                       const AttackCodex(),
                     ],
@@ -995,7 +1004,11 @@ class AttackCardsPanel extends StatelessWidget {
     } else {
       final selected = await showDialog<Player>(
         context: context,
-        builder: (_) => AsciiTargetDialog(card: card, targets: targets),
+        builder: (_) => AsciiTargetDialog(
+          card: card,
+          targets: targets,
+          allPlayers: players,
+        ),
       );
       if (selected == null) return;
       target = selected;
@@ -1089,12 +1102,27 @@ class AttackCardsPanel extends StatelessWidget {
 class AsciiTargetDialog extends StatelessWidget {
   final AttackCard card;
   final List<Player> targets;
+  /// Full ordered player list – used to derive each player's stone color.
+  final List<Player> allPlayers;
 
   const AsciiTargetDialog({
     super.key,
     required this.card,
     required this.targets,
+    required this.allPlayers,
   });
+
+  static const _stoneColors = [
+    CyberpunkColors.stoneP1,
+    CyberpunkColors.stoneP2,
+    CyberpunkColors.stoneP3,
+    CyberpunkColors.stoneP4,
+  ];
+
+  Color _colorFor(Player p) {
+    final idx = allPlayers.indexWhere((x) => x.id == p.id);
+    return _stoneColors[(idx < 0 ? 0 : idx) % _stoneColors.length];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1149,23 +1177,54 @@ class AsciiTargetDialog extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            ...targets.map(
-              (p) => InkWell(
+            ...targets.map((p) {
+              final col = _colorFor(p);
+              return InkWell(
                 onTap: () => Navigator.pop(context, p),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 5),
-                  child: Text(
-                    '  [>>]  ${p.displayName}',
-                    style: TextStyle(
-                      color: CyberpunkColors.amber.withValues(alpha: 0.95),
-                      fontSize: 10,
-                      letterSpacing: 1,
-                      fontFamily: 'monospace',
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 3),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: col.withValues(alpha: 0.80), width: 2),
                     ),
+                    color: col.withValues(alpha: 0.07),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        margin: const EdgeInsets.only(right: 8),
+                        decoration: BoxDecoration(
+                          color: col,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      Text(
+                        p.displayName,
+                        style: TextStyle(
+                          color: col.withValues(alpha: 0.95),
+                          fontSize: 10,
+                          letterSpacing: 1,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '[>>]',
+                        style: TextStyle(
+                          color: col.withValues(alpha: 0.55),
+                          fontSize: 9,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            ),
+              );
+            }),
             const SizedBox(height: 8),
             InkWell(
               onTap: () => Navigator.pop(context),
@@ -1204,6 +1263,55 @@ class GameTerminalLog extends StatelessWidget {
           final line = lines[lines.length - 1 - i];
           final isError = line.contains('ERROR');
           final isRecent = i == 0;
+
+          // ── Chat line: '[HH:MM:SS] CHAT>SENDER>text' ────────────────────
+          final contentIdx = line.indexOf('] ');
+          final content =
+              contentIdx >= 0 ? line.substring(contentIdx + 2) : line;
+          if (content.startsWith('CHAT>')) {
+            final afterPrefix = content.substring(5); // skip 'CHAT>'
+            final sepIdx = afterPrefix.indexOf('>');
+            if (sepIdx >= 0) {
+              final senderName = afterPrefix.substring(0, sepIdx);
+              final text = afterPrefix.substring(sepIdx + 1);
+              final timestamp =
+                  contentIdx >= 0 ? line.substring(0, contentIdx + 1) : '';
+              return RichText(
+                text: TextSpan(
+                  style: const TextStyle(
+                    fontSize: 8.5,
+                    fontFamily: 'monospace',
+                    height: 1.55,
+                  ),
+                  children: [
+                    TextSpan(
+                      text: '$timestamp ',
+                      style: TextStyle(
+                        color: CyberpunkColors.green
+                            .withValues(alpha: 0.45),
+                      ),
+                    ),
+                    TextSpan(
+                      text: '[$senderName]',
+                      style: TextStyle(
+                        color: Colors.lightBlue.withValues(alpha: 0.90),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    TextSpan(
+                      text: ': $text',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.75),
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+          }
+
+          // ── Regular log line ─────────────────────────────────────────────
           return Text(
             line,
             style: TextStyle(
@@ -1220,6 +1328,95 @@ class GameTerminalLog extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+// ── _ChatInput ────────────────────────────────────────────────────────────
+
+/// Compact single-line chat input rendered below the terminal log.
+class _ChatInput extends StatefulWidget {
+  final void Function(String) onSend;
+  const _ChatInput({required this.onSend});
+
+  @override
+  State<_ChatInput> createState() => _ChatInputState();
+}
+
+class _ChatInputState extends State<_ChatInput> {
+  final _ctrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _send() {
+    final text = _ctrl.text.trim();
+    if (text.isEmpty) return;
+    _ctrl.clear();
+    widget.onSend(text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFF030810),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      child: Row(
+        children: [
+          const Text(
+            '>>',
+            style: TextStyle(
+              color: Colors.lightBlue,
+              fontSize: 8.5,
+              fontFamily: 'monospace',
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: TextField(
+              controller: _ctrl,
+              maxLength: 200,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 8.5,
+                fontFamily: 'monospace',
+              ),
+              decoration: const InputDecoration(
+                counterText: '',
+                hintText: 'send message...',
+                hintStyle: TextStyle(
+                  color: Colors.white24,
+                  fontSize: 8.5,
+                  fontFamily: 'monospace',
+                ),
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+              onSubmitted: (_) => _send(),
+            ),
+          ),
+          InkWell(
+            onTap: _send,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                '[TX]',
+                style: TextStyle(
+                  color: Colors.lightBlue.withValues(alpha: 0.75),
+                  fontSize: 8,
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

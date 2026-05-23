@@ -220,6 +220,12 @@ class WiredServerService implements IGameTransport {
       case MessageType.gameOver:
         _logCtrl.add('GAME_OVER');
 
+      case MessageType.chat:
+        final senderName = msg.payload['senderName'] as String? ?? '?';
+        final text = msg.payload['text'] as String? ?? '';
+        // Emit with CHAT> prefix so the terminal widget can colour it.
+        _logCtrl.add('CHAT>$senderName>$text');
+
       case MessageType.ping:
         _channel?.sink.add(GameMessage.pong().toJsonString());
 
@@ -269,6 +275,16 @@ class WiredServerService implements IGameTransport {
   @override
   void sendAction(GameMessage msg) {
     _channel?.sink.add(msg.toJsonString());
+  }
+
+  /// Sends a chat message to the current room.
+  void sendChatMessage(String text) {
+    final pid = _playerId;
+    final room = _roomCode;
+    if (pid == null || room == null) return;
+    _channel?.sink.add(
+      GameMessage.chat(playerId: pid, roomId: room, text: text).toJsonString(),
+    );
   }
 
   // ── Dispose ───────────────────────────────────────────────────────────────

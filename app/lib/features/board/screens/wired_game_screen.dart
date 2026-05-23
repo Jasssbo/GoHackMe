@@ -155,6 +155,8 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
             _attackGlitch.value++;
             ref.read(wiredGameProvider.notifier).launchAttack(action);
           },
+          onChatSend: (text) =>
+              ref.read(wiredGameProvider.notifier).sendChatMessage(text),
         );
 
       case WiredStatus.over:

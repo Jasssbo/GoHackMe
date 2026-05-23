@@ -57,13 +57,14 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
 
   void _pickSolo() {
     _showSetupDialog(_SoloSetupDialog(
-      onConfirm: (size, difficulty) {
+      onConfirm: (size, difficulty, botCount) {
         Navigator.of(context, rootNavigator: true).pop();
         context.push(Routes.solo, extra: {
           'boardSize': size,
           'difficulty': difficulty == BotDifficulty.beginner
               ? 'beginner'
               : 'intermediate',
+          'botCount': botCount,
         });
       },
     ));
@@ -229,7 +230,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
               _TerminalEntry(
                 index: '02',
                 command: 'CLOSED_CIRCUIT',
-                description: 'solo session  ·  1v1 against the machine',
+                description: 'solo session  ·  1v1, 1v2 or 1v3 against the machine',
                 accent: CyberpunkColors.magenta,
                 onTap: _pickSolo,
               ),
@@ -496,7 +497,7 @@ Widget _dialogButton(String label, Color accent, VoidCallback onTap) =>
 // ── Solo setup dialog ─────────────────────────────────────────────────────
 
 class _SoloSetupDialog extends StatefulWidget {
-  final void Function(int boardSize, BotDifficulty difficulty) onConfirm;
+  final void Function(int boardSize, BotDifficulty difficulty, int botCount) onConfirm;
   const _SoloSetupDialog({required this.onConfirm});
 
   @override
@@ -506,6 +507,7 @@ class _SoloSetupDialog extends StatefulWidget {
 class _SoloSetupDialogState extends State<_SoloSetupDialog> {
   int _boardSize = 9;
   BotDifficulty _difficulty = BotDifficulty.intermediate;
+  int _botCount = 1;
 
   static const _accent = CyberpunkColors.magenta;
 
@@ -539,9 +541,33 @@ class _SoloSetupDialogState extends State<_SoloSetupDialog> {
             onSelectionChanged: (s) => setState(() => _difficulty = s.first),
             style: _dialogSegStyle(_accent),
           ),
+          const SizedBox(height: 14),
+          _dialogLabel('OPPONENTS', _accent),
+          SegmentedButton<int>(
+            segments: const [
+              ButtonSegment(
+                value: 1,
+                label: Text('1v1'),
+                tooltip: 'One bot opponent',
+              ),
+              ButtonSegment(
+                value: 2,
+                label: Text('1v2'),
+                tooltip: 'Two bot opponents',
+              ),
+              ButtonSegment(
+                value: 3,
+                label: Text('1v3'),
+                tooltip: 'Three bot opponents',
+              ),
+            ],
+            selected: {_botCount},
+            onSelectionChanged: (s) => setState(() => _botCount = s.first),
+            style: _dialogSegStyle(_accent),
+          ),
           const SizedBox(height: 20),
           _dialogButton('JACK_IN', _accent,
-              () => widget.onConfirm(_boardSize, _difficulty)),
+              () => widget.onConfirm(_boardSize, _difficulty, _botCount)),
         ],
       ),
     );

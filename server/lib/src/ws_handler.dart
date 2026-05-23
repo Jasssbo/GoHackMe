@@ -80,6 +80,11 @@ Handler buildWsHandler(RoomManager roomManager) {
     var msgCount = 0;
     var windowStart = DateTime.now();
 
+    // Per-connection chat rate limit: max 100 messages in any 5-minute window.
+    final chatTimestamps = <DateTime>[];
+    const kMaxChatMsgs = 100;
+    const kChatWindow = Duration(minutes: 5);
+
     // ── Proactive keep-alive ping ──────────────────────────────────────────
     // Detects dead connections (crashed clients that never emit onDone).
     // Sends a ping every [_kPingInterval]; if [_kMaxMissedPongs] consecutive
@@ -288,6 +293,41 @@ Handler buildWsHandler(RoomManager roomManager) {
         }
 
         // Use the server-verified identity rather than trusting the client's playerId field.
+        // ── Chat ──────────────────────────────────────────────────────────────
+        if (message.type == MessageType.chat) {
+          // Only allowed while a game is in progress.
+          if (!room.isStarted) {
+            channel.sink.add(
+              GameMessage.error(reason: 'GAME_NOT_STARTED').toJsonString(),
+            );
+            return;
+          }
+          // Per-connection chat rate limit (100 messages / 5 minutes).
+          final now2 = DateTime.now();
+          chatTimestamps.removeWhere(
+              (t) => now2.difference(t) > kChatWindow);
+          if (chatTimestamps.length >= kMaxChatMsgs) {
+            channel.sink.add(
+              GameMessage.error(reason: 'CHAT_RATE_LIMITED').toJsonString(),
+            );
+            return;
+          }
+          chatTimestamps.add(now2);
+
+          final rawText = message.payload['text'] as String? ?? '';
+          // Strip control characters and enforce 200-char cap.
+          final cleanText =
+              rawText.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), '').trim();
+          if (cleanText.isEmpty) return;
+          final text = cleanText.length > 200
+              ? cleanText.substring(0, 200)
+              : cleanText;
+
+          final senderName = room.playerDisplayName(connectedPlayerId!);
+          room.broadcastChat(connectedPlayerId!, senderName, text);
+          return;
+        }
+
         room.handleAction(message, verifiedPlayerId: connectedPlayerId!);
       },
       onDone: cleanup,
