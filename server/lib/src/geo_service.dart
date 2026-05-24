@@ -18,23 +18,30 @@ class GeoResult {
   });
 }
 
-/// Returns geolocation for [ip] using ip-api.com (free, no key, 45 req/min).
+/// Returns geolocation for [ip] using ipapi.co (free tier, HTTPS, 30k req/month).
 /// Returns null for private/loopback addresses or if the lookup fails.
 Future<GeoResult?> geolocateIp(String ip) async {
   if (_isPrivateIp(ip)) return null;
   try {
-    // HTTPS — prevents MITM from reading player IPs or injecting fake coordinates.
-    final uri = Uri.parse(
-        'https://ip-api.com/json/$ip?fields=status,lat,lon,city,country');
-    final res = await http.get(uri).timeout(const Duration(seconds: 5));
+    // ipapi.co free tier supports HTTPS (unlike ip-api.com whose free plan is
+    // HTTP-only).  The data returned (city/country/coords) is low-sensitivity;
+    // HTTPS prevents a network-path observer from correlating player IPs with
+    // room codes.
+    final uri = Uri.parse('https://ipapi.co/$ip/json/');
+    final res = await http.get(uri, headers: {'User-Agent': 'gohackme-server/1.0'})
+        .timeout(const Duration(seconds: 5));
     if (res.statusCode != 200) return null;
     final data = jsonDecode(res.body) as Map<String, dynamic>;
-    if (data['status'] != 'success') return null;
+    // ipapi.co sets 'error': true on failure (e.g. reserved/invalid IP).
+    if (data['error'] == true) return null;
+    final lat = (data['latitude'] as num?)?.toDouble();
+    final lon = (data['longitude'] as num?)?.toDouble();
+    if (lat == null || lon == null) return null;
     return GeoResult(
-      lat: (data['lat'] as num).toDouble(),
-      lon: (data['lon'] as num).toDouble(),
+      lat: lat,
+      lon: lon,
       city: data['city'] as String? ?? '',
-      country: data['country'] as String? ?? '',
+      country: data['country_name'] as String? ?? '',
     );
   } catch (_) {
     return null;
