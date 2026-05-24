@@ -80,8 +80,8 @@ class GoRules {
   /// Validates whether [color] may place a stone at [pos] on [board].
   ///
   /// [boardHashes] contains [Board.zobristHash] for every prior position,
-  /// oldest first.  Using hashes keeps superko checking O(1) per prior
-  /// state and removes the need for any history cap.
+  /// oldest first.  Hash comparison is O(n) over the history length, which
+  /// is negligible for typical game lengths (a few hundred moves at most).
   ///
   /// Returns `null` when the move is legal; returns an error string otherwise.
   static String? validatePlacement(

@@ -70,6 +70,7 @@ class _BoardWidgetState extends State<BoardWidget>
   static const double _elSens  = 0.005; // rad per screen-pixel
   static const double _minEl   = 0.15;  // ≈ 8.6° — prevents top-down edge case
   static const double _maxEl   = math.pi / 2 - 0.05; // ≈ 87°
+  static const int    _kTapThresholdMs = 350; // max ms between down and up to count as tap
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -138,7 +139,9 @@ class _BoardWidgetState extends State<BoardWidget>
   void _onScaleUpdate(ScaleUpdateDetails d) {
     // Cross the drag threshold?
     if (!_gestureWasDrag) {
-      final moved = (d.localFocalPoint - _tapLocalPos!).distance;
+      final localPos = _tapLocalPos;
+      if (localPos == null) return;
+      final moved = (d.localFocalPoint - localPos).distance;
       if (moved > 6 || d.scale != 1.0) _gestureWasDrag = true;
     }
 
@@ -161,19 +164,23 @@ class _BoardWidgetState extends State<BoardWidget>
   }
 
   void _onScaleEnd(ScaleEndDetails d) {
-    // If no drag and under 350 ms, treat it as a tap.
+    // If no drag and under _kTapThresholdMs ms, treat it as a tap.
     if (!_gestureWasDrag && widget.onTap != null) {
-      final ms = DateTime.now().difference(_tapStartTime!).inMilliseconds;
-      if (ms < 350 && _tapLocalPos != null) {
-        final pos = board3dHitTest(
-          _tapLocalPos!,
-          _canvasSize,
-          widget.boardSize,
-          _azimuth,
-          _elevation,
-          _zoom,
-        );
-        if (pos != null) widget.onTap!(pos);
+      final startTime = _tapStartTime;
+      final localPos  = _tapLocalPos;
+      if (startTime != null && localPos != null) {
+        final ms = DateTime.now().difference(startTime).inMilliseconds;
+        if (ms < _kTapThresholdMs) {
+          final pos = board3dHitTest(
+            localPos,
+            _canvasSize,
+            widget.boardSize,
+            _azimuth,
+            _elevation,
+            _zoom,
+          );
+          if (pos != null) widget.onTap!(pos);
+        }
       }
     }
     _tapLocalPos    = null;

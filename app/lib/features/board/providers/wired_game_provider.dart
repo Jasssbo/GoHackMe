@@ -109,7 +109,7 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     required int boardSize,
     required int maxPlayers,
   }) async {
-    _reset();
+    await _reset();
     final roomCode = const Uuid().v4().substring(0, 6).toUpperCase();
     final svc = WiredServerService();
     _transport = svc;
@@ -165,7 +165,7 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     required String playerId,
     required String displayName,
   }) async {
-    _reset();
+    await _reset();
     final svc = WiredServerService();
     _transport = svc;
 
@@ -228,12 +228,6 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
   }
 
   void _onLog(String line) {
-    // Socket connected — show a brief "CONNECTING_TO_SERVER" spinner before
-    // moving to the waiting room. The provider's post-connect check handles
-    // the final waking → waiting transition after svc.connect() returns.
-    if (line == 'UPLINK_ESTABLISHED' && state.status == WiredStatus.waking) {
-      state = state.copyWith(status: WiredStatus.connecting);
-    }
     _addLog(line);
   }
 
@@ -251,8 +245,16 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
   }
 
   void _onError(String msg) {
+    // A small set of codes are fatal and must surface even during gameplay.
+    const fatalDuringPlay = {
+      'SERVER_DISCONNECTED',
+      'ROOM_NOT_FOUND',
+      'VERSION_MISMATCH',
+      'ROOM_FULL',
+    };
     // Ignore non-fatal server errors during gameplay.
-    if (state.status == WiredStatus.playing) {
+    if (state.status == WiredStatus.playing &&
+        !fatalDuringPlay.contains(msg)) {
       _addLog('SERVER_ERROR: $msg');
       return;
     }
@@ -279,12 +281,12 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
 
   // ── Reset / leave ─────────────────────────────────────────────────────────
 
-  void _reset() {
+  Future<void> _reset() async {
     for (final s in _subs) {
       s.cancel();
     }
     _subs.clear();
-    _transport?.dispose();
+    await _transport?.dispose();
     _transport = null;
     state = const WiredGameState();
   }
@@ -297,7 +299,7 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     if (t is WiredServerService) t.sendChatMessage(trimmed);
   }
 
-  Future<void> leave() async => _reset();
+  Future<void> leave() => _reset();
 }
 
 // ── Provider ──────────────────────────────────────────────────────────────

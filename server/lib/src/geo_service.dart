@@ -22,6 +22,8 @@ class GeoResult {
 /// Returns null for private/loopback addresses or if the lookup fails.
 Future<GeoResult?> geolocateIp(String ip) async {
   if (_isPrivateIp(ip)) return null;
+  // Validate strictly before embedding in a URL path to prevent path injection.
+  if (!_isValidPublicIp(ip)) return null;
   try {
     // ipapi.co free tier supports HTTPS (unlike ip-api.com whose free plan is
     // HTTP-only).  The data returned (city/country/coords) is low-sensitivity;
@@ -87,10 +89,12 @@ String extractIp(Map<String, String> headers, HttpConnectionInfo? conn) {
 }
 
 bool _isPrivateIp(String ip) {
-  if (ip.isEmpty || ip == '0.0.0.0' || ip == '::1') return true;
+  if (ip.isEmpty || ip == '0.0.0.0' || ip == '::1' || ip == '::') return true;
   if (ip.startsWith('127.')) return true;
   if (ip.startsWith('10.')) return true;
   if (ip.startsWith('192.168.')) return true;
+  if (ip.startsWith('fc') || ip.startsWith('fd')) return true; // fc00::/7 ULA
+  if (ip.toLowerCase().startsWith('fe80')) return true; // fe80::/10 link-local
   // 172.16.0.0 – 172.31.255.255
   final parts = ip.split('.');
   if (parts.length == 4) {
@@ -99,4 +103,20 @@ bool _isPrivateIp(String ip) {
     if (a == 172 && b != null && b >= 16 && b <= 31) return true;
   }
   return false;
+}
+
+/// Strict IPv4 / IPv6 format check — rejects anything that is not a bare IP
+/// address, preventing path-traversal injection into the geolocation URL.
+bool _isValidPublicIp(String ip) {
+  // IPv4: four decimal octets
+  final ipv4 = RegExp(r'^(\d{1,3}\.){3}\d{1,3}$');
+  if (ipv4.hasMatch(ip)) {
+    return ip.split('.').every((o) {
+      final n = int.tryParse(o);
+      return n != null && n >= 0 && n <= 255;
+    });
+  }
+  // IPv6: only hex digits and colons (covers full and compressed forms)
+  final ipv6 = RegExp(r'^[0-9a-fA-F:]+$');
+  return ipv6.hasMatch(ip) && ip.contains(':');
 }

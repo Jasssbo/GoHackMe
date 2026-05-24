@@ -7,7 +7,8 @@ enum AttackType {
   /// DDOS.sh – skip the target's next stone placement.
   ddos,
 
-  /// SPYWARE.sh – steal 3 subnets from target (attacker gains, target loses).
+  /// TROJAN.sh – steal half the target's subnets (floor division);
+  /// attacker gains the amount, target loses it.
   trojan,
 
   /// MITM.sh – hijack target's next turn: attacker places their own stone
@@ -110,8 +111,8 @@ class AttackAction {
   final String attackerPlayerId;
   final String targetPlayerId;
 
-  /// Target intersection (required by [worm] and [honeypot]).
-  /// Null for [ddos], [spyware], [backdoor], and [patch].
+  /// Target intersection (required by [worm] and [knightseye]).
+  /// Null for [ddos], [trojan], [backdoor], and [patch].
   final Position? targetPosition;
 
   const AttackAction({

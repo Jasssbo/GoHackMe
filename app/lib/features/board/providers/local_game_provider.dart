@@ -63,7 +63,9 @@ class LocalGameNotifier extends Notifier<GameState?> {
     /// Number of bot opponents.  Supported values: 1 (1v1) or 3 (1v3).
     int botCount = 1,
   }) {
-    assert(botCount >= 1 && botCount <= 3, 'botCount must be 1, 2 or 3');
+    if (botCount < 1 || botCount > 3) {
+      throw ArgumentError('botCount must be 1–3, got $botCount');
+    }
     _botTurnPending = false;
     _difficulty = difficulty;
     _botIds = List.generate(botCount, (i) => 'bot_${i + 1}');
@@ -149,6 +151,13 @@ class LocalGameNotifier extends Notifier<GameState?> {
       if (s == null) return;
       if (s.currentPlayerId != _humanId) return;
       ref.read(localGameLogProvider.notifier).append('TURN_TIMEOUT >> AUTO_SKIP');
+      if (s.phase == GamePhase.hijackedVictimPlacement) {
+        // pass() is invalid in this phase; keep the clock running so the
+        // game does not stall while waiting for the human hijacker to act.
+        ref.read(localGameLogProvider.notifier).append('TURN_TIMEOUT >> AWAITING_HIJACK_PLACEMENT');
+        _resetTurnTimer();
+        return;
+      }
       final ActionResult result;
       if (s.phase == GamePhase.attack) {
         result = GameEngine.endAttackPhase(s, _humanId);
@@ -171,37 +180,6 @@ class LocalGameNotifier extends Notifier<GameState?> {
           _turnTimer?.cancel();
           _handleGameOver(newState);
           return;
-        }
-
-        // Auto-skip loop: advance past every consecutive DDOS-blocked player.
-        int skipGuard = 0;
-        while (
-          skipGuard < newState.players.length &&
-          state!.phase == GamePhase.attack &&
-          state!.hasEffect(state!.currentPlayerId, AttackType.ddos)
-        ) {
-          skipGuard++;
-          final skipResult = GameEngine.skipDdosVictim(state!);
-          if (skipResult case ActionSuccess(
-            newState: final skipState,
-            logMessage: final skipLog,
-          )) {
-            state = skipState;
-            if (skipLog != null) {
-              ref.read(localGameLogProvider.notifier).append('DDOS >> $skipLog');
-            }
-            if (skipState.currentPlayerId == _humanId) {
-              // Human's turn after DDOS skip – restart their timer.
-              _resetTurnTimer();
-              return;
-            }
-            if (_isBot(skipState.currentPlayerId)) {
-              _scheduleBotTurn();
-              return;
-            }
-          } else {
-            break;
-          }
         }
 
         // Schedule bot turn when it becomes any bot's turn.
@@ -232,13 +210,32 @@ class LocalGameNotifier extends Notifier<GameState?> {
     final current = state;
     if (current == null) return;
     if (!_isBot(current.currentPlayerId)) return;
-    if (current.phase != GamePhase.attack) return;
     if (GameEngine.isGameOver(current)) return;
 
     final botId = current.currentPlayerId;
-    final botLabel = current.players
-        .firstWhere((p) => p.id == botId)
-        .displayName;
+    final botLabel =
+        current.players.firstWhere((p) => p.id == botId).displayName;
+
+    // In hijackedVictimPlacement the bot (hijacker) must place a stone in
+    // the victim's colour.  Pick any legal position and place it.
+    if (current.phase == GamePhase.hijackedVictimPlacement) {
+      final move = BotPlayer.pickMove(current, botId, _difficulty);
+      if (move != null) {
+        ref
+            .read(localGameLogProvider.notifier)
+            .append('$botLabel >> HIJACK_PLACE (${move.x},${move.y})');
+        _applyResult(GameEngine.placeStone(current, botId, move));
+      } else {
+        // Board full — pass as a fallback; engine will reject and log.
+        ref
+            .read(localGameLogProvider.notifier)
+            .append('$botLabel >> HIJACK_PASS (board full)');
+        _applyResult(GameEngine.pass(current, botId));
+      }
+      return;
+    }
+
+    if (current.phase != GamePhase.attack) return;
 
     // Bot may choose to attack first (attacks are valid in placement phase).
     final attack = BotPlayer.pickAttack(current, botId, _humanId, _difficulty);

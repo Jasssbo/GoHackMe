@@ -88,7 +88,7 @@ class LanHostService implements IGameTransport {
   // ── Turn timer ───────────────────────────────────────────────
   Timer? _turnTimer;
   static const _kTurnTimeout = Duration(seconds: 15);
-  @override
+  static const _kReconnectGrace = Duration(seconds: 30);  Timer? _countdownTimer;  @override
   Stream<GameState> get stateStream => _stateCtrl.stream;
   @override
   Stream<String> get logStream => _logCtrl.stream;
@@ -163,7 +163,7 @@ class LanHostService implements IGameTransport {
       },
       onDone: () => _onClientGone(conn),
       onError: (_) => _onClientGone(conn),
-      cancelOnError: false,
+      cancelOnError: true,
     );
   }
 
@@ -394,7 +394,7 @@ class LanHostService implements IGameTransport {
 
     // 30-second window: if they don't reconnect, close their slot.
     _reconnectTimers[pid]?.cancel();
-    _reconnectTimers[pid] = Timer(const Duration(seconds: 30), () {
+    _reconnectTimers[pid] = Timer(_kReconnectGrace, () {
       _disconnectedPlayers.remove(pid);
       _reconnectTimers.remove(pid);
       _log('RECONNECT_TIMEOUT: $pid — slot permanently closed');
@@ -415,6 +415,7 @@ class LanHostService implements IGameTransport {
     // Broadcast updated state (new subnet values) and auto-skip if needed.
     _broadcastStateUpdate('>> SIGNAL_LOST :: $name DISCONNECTED');
     _autoSkipDisconnected();
+    _resetTurnTimer();
   }
 
   /// Moves [playerId]'s subnets evenly to all currently connected players.
@@ -445,6 +446,39 @@ class LanHostService implements IGameTransport {
   void _autoSkipDisconnected() {
     if (_state == null || _disconnectedPlayers.isEmpty) return;
 
+    // hijackedVictimPlacement: if the hijacker (current player) disconnected,
+    // auto-place at the first available board position so the game can proceed.
+    if (_state!.phase == GamePhase.hijackedVictimPlacement &&
+        _disconnectedPlayers.contains(_state!.currentPlayerId)) {
+      final size = _state!.board.size;
+      Position? autoPos;
+      outer: for (var x = 0; x < size; x++) {
+        for (var y = 0; y < size; y++) {
+          final p = Position(x, y);
+          if (_state!.board.at(p) == null) {
+            autoPos = p;
+            break outer;
+          }
+        }
+      }
+      if (autoPos != null) {
+        final result =
+            GameEngine.placeStone(_state!, _state!.currentPlayerId, autoPos);
+        if (result is ActionSuccess) {
+          _state = result.newState;
+          _stateCtrl.add(_state!);
+          _broadcastStateUpdate('>> AUTO_HIJACK_PLACE :: HIJACKER OFFLINE');
+          if (GameEngine.isGameOver(_state!)) {
+            _broadcastAll(
+                GameMessage(type: MessageType.gameOver, payload: {}));
+            _beacon.stop();
+            _log('GAME_OVER');
+            return;
+          }
+          // Fall through to the regular DDOS-skip loop below.
+        }
+      }
+    }
     int guard = 0;
     final maxGuard = _state!.players.length;
 
@@ -499,7 +533,11 @@ class LanHostService implements IGameTransport {
         _applyResult(GameEngine.pass(_state!, _hostPlayerId));
       case MessageType.performAttack:
         try {
-          final a = AttackAction.fromJson(msg.payload);
+          // Enforce host identity — prevent the host's own UI from accidentally
+          // attributing an attack to a different player.
+          final rawAction = Map<String, dynamic>.from(msg.payload)
+            ..['attackerPlayerId'] = _hostPlayerId;
+          final a = AttackAction.fromJson(rawAction);
           _applyResult(GameEngine.launchAttack(_state!, a));
         } catch (e) {
           _log('ATTACK_PARSE_ERROR: $e');
@@ -514,12 +552,13 @@ class LanHostService implements IGameTransport {
   void _startCountdown() {
     var remaining = 3;
     _log('ALL_NODES_WIRED — LAUNCHING_IN: $remaining');
-    Timer.periodic(const Duration(seconds: 1), (t) {
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
       remaining--;
       if (remaining > 0) {
         _log('LAUNCHING_IN: $remaining');
       } else {
         t.cancel();
+        _countdownTimer = null;
         startGame();
       }
     });
@@ -564,6 +603,13 @@ class LanHostService implements IGameTransport {
       if (_state == null) return;
       if (_state!.currentPlayerId != playerId) return;
       _log('TURN_TIMEOUT: auto-acting for player=$playerId phase=${_state!.phase.name}');
+      if (_state!.phase == GamePhase.hijackedVictimPlacement) {
+        // pass() is invalid in this phase; restart the timer so the game does
+        // not stall while waiting for the hijacker to place a stone.
+        _log('cannot auto-resolve phase=hijackedVictimPlacement; restarting timer');
+        _resetTurnTimer();
+        return;
+      }
       final ActionResult result;
       if (_state!.phase == GamePhase.attack) {
         result = GameEngine.endAttackPhase(_state!, playerId);
@@ -678,6 +724,8 @@ class LanHostService implements IGameTransport {
   Future<void> dispose() async {
     _pingTimer?.cancel();
     _pingTimer = null;
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
     for (final t in _reconnectTimers.values) { t.cancel(); }
     _reconnectTimers.clear();
     _beacon.stop();

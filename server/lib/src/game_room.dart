@@ -131,6 +131,28 @@ class GameRoom {
         _disconnectedPlayerIds.remove(playerId);
         _reconnectTimers.remove(playerId);
         _players.removeWhere((p) => p.id == playerId);
+        // Also remove the timed-out player from the live GameState so their
+        // turn slot does not become an infinitely-stalling ghost.
+        // Adjust currentPlayerIndex if the removed player was earlier in the
+        // list — otherwise every remaining player's index shifts by -1 and
+        // the wrong player gets the next turn.
+        if (_state != null) {
+          final removedIdx =
+              _state!.players.indexWhere((p) => p.id == playerId);
+          final newPlayers =
+              _state!.players.where((p) => p.id != playerId).toList();
+          int newCurrentIdx = _state!.currentPlayerIndex;
+          if (removedIdx != -1 && removedIdx < newCurrentIdx) {
+            newCurrentIdx--;
+          }
+          if (newPlayers.isNotEmpty) {
+            newCurrentIdx = newCurrentIdx.clamp(0, newPlayers.length - 1);
+          }
+          _state = _state!.copyWith(
+            players: newPlayers,
+            currentPlayerIndex: newCurrentIdx,
+          );
+        }
         _log('room:$id', 'player TIMED OUT after ${_kReconnectGrace.inSeconds}s: $playerId');
         _broadcast(GameMessage(
           type: MessageType.playerLeft,
@@ -257,8 +279,11 @@ class GameRoom {
       if (_state!.phase == GamePhase.attack) {
         result = GameEngine.endAttackPhase(_state!, playerId);
       } else {
-        // playing or hijackedVictimPlacement — auto-pass
-        result = GameEngine.pass(_state!, playerId);
+        // hijackedVictimPlacement: auto-pass is not valid in this phase;
+        // the turn timer cannot resolve it. Log and wait for the next tick.
+        _log('room:$id', 'TURN_TIMEOUT: cannot auto-resolve phase=${_state!.phase.name} for player=$playerId');
+        _resetTurnTimer(); // keep the clock running
+        return;
       }
       if (result is ActionSuccess) {
         _state = result.newState;
@@ -308,7 +333,6 @@ class GameRoom {
       roomId: id,
       payload: {
         'scores': scores.map((k, v) => MapEntry(k.name, v)),
-        'state': _state!.toJson(),
       },
     ));
   }

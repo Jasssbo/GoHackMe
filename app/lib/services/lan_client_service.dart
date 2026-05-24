@@ -112,7 +112,7 @@ class LanClientService implements IGameTransport {
           _errorCtrl.add('TCP_ERROR: $e');
         }
       },
-      cancelOnError: false,
+      cancelOnError: true,
     );
 
     // Introduce ourselves

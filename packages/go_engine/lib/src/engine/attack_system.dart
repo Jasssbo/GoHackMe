@@ -10,6 +10,10 @@ import 'go_rules.dart';
 class AttackSystem {
   AttackSystem._();
 
+  /// Sentinel value for [ActiveEffect.turnsRemaining] that means "persist
+  /// indefinitely until explicitly consumed" (used by [AttackType.knightseye]).
+  static const _kEffectPermanent = 999;
+
   // ── Attack validation ─────────────────────────────────────────────────────
 
   /// Returns null if [action] is valid in the current [state], or an error
@@ -23,7 +27,7 @@ class AttackSystem {
       return 'NOT_YOUR_TURN';
     }
 
-    // PATCH, KNIGHTS_EYE, TIMEBOMB, and BACKDOOR are self-applied/broadcast;
+    // PATCH, KNIGHTS_EYE, PSYCHE, and BACKDOOR are self-applied/broadcast;
     // all other attacks must target a different player.
     if (action.type != AttackType.patch &&
         action.type != AttackType.knightseye &&
@@ -183,7 +187,7 @@ class AttackSystem {
         newEffects.add(ActiveEffect(
           type: AttackType.knightseye,
           targetPlayerId: action.attackerPlayerId, // owner of the trap
-          turnsRemaining: 999, // persists until the trap fires or stone is gone
+          turnsRemaining: _kEffectPermanent, // persists until the trap fires or stone is gone
           anchorPosition: action.targetPosition,
         ));
 
@@ -213,8 +217,9 @@ class AttackSystem {
   /// Called at the start of [playerId]'s turn to tick down and resolve
   /// any expiring effects.
   ///
-  /// [patch] effects (turnsRemaining: 999) and [honeypot] effects are NOT
-  /// ticked – they are consumed explicitly.
+  /// [knightseye] (honeypot) effects are excluded from ticking — they use
+  /// [_kEffectPermanent] as a sentinel and are consumed explicitly via
+  /// [consumeHoneypot].
   static GameState tickEffectsForPlayer(GameState state, String playerId) {
     final stillActive = <ActiveEffect>[];
 
@@ -223,7 +228,9 @@ class AttackSystem {
         stillActive.add(effect);
         continue;
       }
-      // backdoor and honeypot are event-driven, not turn-ticked.
+      // knightseye (honeypot) effects are excluded from ticking —
+      // they use _kEffectPermanent as a sentinel and are consumed
+      // explicitly by the honeypot-explosion path.
       if (effect.type == AttackType.knightseye) {
         stillActive.add(effect);
         continue;

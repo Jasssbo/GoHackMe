@@ -159,8 +159,9 @@ bin/server.dart         ← Entry point. Shelf HTTP + CORS. Mounts WS handler.
 lib/src/ws_handler.dart ← Upgrades HTTP → WebSocket. Rate-limiting, size guard,
                           UUID validation. Routes messages to GameRoom.
 lib/src/room_manager.dart← HashMap<roomId, GameRoom>. Creates, looks up, and
-                           reaps rooms. Hard cap of 50 rooms; room 51 gets
-                           SERVER_FULL and its channel is closed cleanly.
+                           reaps rooms. Enforces a hard room cap; room creation
+                           beyond the limit returns `null` and the caller sends
+                           `SERVER_FULL` before closing the channel cleanly.
 lib/src/game_room.dart  ← One room. Holds the GameState. Fans out broadcasts.
                            Calls GameEngine on each client action.
 lib/src/discovery_service.dart ← UDP beacon for LAN auto-discovery.
@@ -183,11 +184,11 @@ Client ──GameMessage──► ws_handler ──route──► GameRoom
 
 `ws_handler` applies six guards on every WebSocket message before it touches game logic:
 
-1. **Connection cap** — max 200 concurrent WebSocket connections. New connections
+1. **Connection cap** — a server-side limit on concurrent WebSocket connections. New connections
    beyond the cap are rejected with `SERVER_FULL` before any state is allocated.
-2. **Size guard** — messages > 4 096 bytes are rejected. Prevents memory exhaustion.
-3. **Rate limit** — more than 20 messages/second per connection drops the connection.
-4. **UUID format** — `playerId` must match UUID v4 regex. Prevents log injection.
+2. **Size guard** — oversized messages are rejected. Prevents memory exhaustion.
+3. **Rate limit** — connections that send messages too rapidly are dropped.
+4. **UUID format** — `playerId` must be a valid UUID v4. Prevents log injection.
 5. **Server-verified identity** — the server ignores the `playerId` field in action
    messages. It uses the `connectedPlayerId` stored at `joinRoom` time.
    A client cannot impersonate another player.
@@ -204,20 +205,19 @@ before any request reaches the router:
 - **Security headers** — `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`,
   `Strict-Transport-Security: max-age=31536000; includeSubDomains`. `X-Powered-By`
   is suppressed to avoid stack fingerprinting.
-- **HTTP rate limit** — 60 requests/minute per IP across `/rooms`, `/stats`, `/health`.
-  Returns HTTP 429 with `Retry-After: 60` on breach. WebSocket upgrades are excluded
+- **HTTP rate limit** — per-IP rate limiting across `/rooms`, `/stats`, `/health`.
+  Returns HTTP 429 with a `Retry-After` header on breach. WebSocket upgrades are excluded
   (they have their own per-connection limits above).
 
-Geolocation (for the lobby globe pin) queries ip-api.com over HTTPS. The server
-checks `CF-Connecting-IP` first (tamper-proof Cloudflare header) then falls back
-to the rightmost `X-Forwarded-For` entry, preventing clients from spoofing their
-geo-pin by injecting a forged leftmost XFF value.
+Geolocation (for the lobby globe pin) queries an external IP geolocation API over HTTPS.
+The server uses a proxy-aware IP resolution strategy to prevent clients from spoofing
+their geo-pin via forged forwarding headers.
 
 **Host-only force-start:** `GameRoom.forceStart({required String requesterId})`
 checks that the caller is the room's host (the first player to join). Any guest
 sending `startGame` receives `NOT_HOST`.
 
-**Room cap:** `getOrCreate()` returns `null` when 50 rooms are already active.
+**Room cap:** `getOrCreate()` returns `null` when the active room limit is reached.
 `ws_handler` detects the `null` return and sends `SERVER_FULL`, then closes the
 channel. The client translates this code to a human-readable message in the UI.
 No partial state is written; the room is never added to the map.
@@ -436,11 +436,10 @@ room without knowing the host's IP. Any device on the same subnet can receive
 these packets, which creates a spoofing vector: a rogue device could broadcast
 a fake beacon to redirect players to a different host.
 
-**Mitigation:** every beacon payload is signed with
-`HMAC-SHA256(key="GOHACKME_LAN_BEACON_v1", message=payload_without_tag)`.
+**Mitigation:** every beacon payload is signed with an HMAC-SHA256 tag using
+a static application-level key embedded in the binary.
 The scanner discards any beacon whose tag doesn't match before parsing any
-fields. A device that hasn't reverse-engineered the app binary cannot forge a
-valid tag. (Replay attacks are harmless — the TCP connection always goes to
+fields. (Replay attacks are harmless — the TCP connection always goes to
 the actual UDP sender address, not to an address in the payload.)
 
 **TCP buffer guard:** each client connection buffers incoming bytes in a
@@ -644,7 +643,7 @@ cancels the timer, and immediately sends a full `gameStateUpdate(log: 'RECONNECT
 | NAT / firewall sensitivity | None | None — client always initiates outbound WS |
 | Encryption | None (trusted LAN assumed) | TLS mandatory (`wss://`) |
 | Message size cap | 8 KB (TCP buffer guard) | 4 KB (WebSocket guard) |
-| Rate limiting | None (trusted peers) | 20 msg/s WebSocket + 60 HTTP req/min |
+| Rate limiting | None (trusted peers) | Per-connection WebSocket + per-IP HTTP rate limiting |
 | Identity verification | Socket-bound `playerId` | Socket-bound `playerId` + UUID v4 regex |
 
 

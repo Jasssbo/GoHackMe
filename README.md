@@ -165,16 +165,15 @@ The internet-facing server (Wired mode) applies defence-in-depth:
 | Layer | Detail |
 |---|---|
 | **Transport** | TLS 1.3 + AES-256-GCM on all connections (`wss://`) |
-| **Geolocation** | Player IPs sent to ip-api.com over HTTPS; `CF-Connecting-IP` used for accurate IP resolution |
-| **Connection cap** | Max 200 WebSocket connections; max 50 rooms |
-| **Message size** | WebSocket: 4 KB / LAN TCP: 8 KB hard cap per message |
-| **Rate limiting** | 20 WebSocket msg/s per connection; 60 HTTP req/min per IP |
-| **Input validation** | `playerId` validated as UUID v4; `roomId` as `[A-Za-z0-9\-]{4,64}` |
+| **Connection & room limits** | Server-side caps on concurrent connections and active rooms |
+| **Message size** | Hard cap per message on both WebSocket and LAN TCP channels |
+| **Rate limiting** | Per-connection WebSocket and per-IP HTTP rate limits enforced |
+| **Input validation** | All identifiers validated by type and format before touching game logic |
 | **Identity** | Server-verified player identity on all game actions — client cannot spoof |
 | **Headers** | `X-Content-Type-Options`, `Strict-Transport-Security`, `Cache-Control: no-store` |
 | **Secrets** | Server URL injected at compile time (`--dart-define`); keystore excluded via `.gitignore` |
 
-LAN mode runs on a trusted local network. Rooms are protected against trivial UDP beacon spoofing via HMAC-SHA256 beacon signatures.
+LAN mode runs on a trusted local network. Rooms are protected against UDP beacon spoofing via authenticated beacon signatures.
 
 ## License
 

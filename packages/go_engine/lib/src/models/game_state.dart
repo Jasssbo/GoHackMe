@@ -97,6 +97,7 @@ class GameState {
 
   StoneColor currentPlayerColor(String playerId) {
     final idx = players.indexWhere((p) => p.id == playerId);
+    if (idx < 0) return StoneColor.p1; // fallback: player not in this game
     return StoneColor.fromIndex(idx);
   }
 
@@ -114,7 +115,10 @@ class GameState {
     required int boardSize,
     int initialSubnets = 0,
   }) {
-    assert(players.length >= 2 && players.length <= 4);
+    if (players.length < 2 || players.length > 4) {
+      throw ArgumentError(
+          'GoHackMe requires 2–4 players, got ${players.length}');
+    }
     return GameState(
       board: Board(size: boardSize),
       boardHashes: const [],
@@ -178,6 +182,8 @@ class GameState {
         'patchShields': patchShields,
         'backdoorBy': backdoorBy,
         'phase': phase.name,
+        'turnNumber': turnNumber,
+        'consecutivePasses': consecutivePasses,
         'activeEffects': activeEffects.map((e) => e.toJson()).toList(),
       };
 
@@ -210,7 +216,7 @@ class GameState {
             (k, v) => MapEntry(k as String, v as String?),
           ) ??
           {},
-      turnNumber: json['turnNumber'] as int? ?? 0,
+      turnNumber: json['turnNumber'] as int? ?? 1,
       consecutivePasses: json['consecutivePasses'] as int? ?? 0,
       phase: GamePhase.values.byName(json['phase'] as String),
       activeEffects: (json['activeEffects'] as List)

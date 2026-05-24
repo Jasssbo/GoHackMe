@@ -91,8 +91,11 @@ Handler buildWsHandler(RoomManager roomManager) {
     // pings are unanswered the connection is forcibly closed.
     var missedPongs = 0;
     Timer? pingTimer;
+    var cleaned = false;
 
     void cleanup() {
+      if (cleaned) return;
+      cleaned = true;
       pingTimer?.cancel();
       pingTimer = null;
       activeConnections--;
@@ -304,16 +307,16 @@ Handler buildWsHandler(RoomManager roomManager) {
             return;
           }
           // Per-connection chat rate limit (100 messages / 5 minutes).
-          final now2 = DateTime.now();
+          final chatNow = DateTime.now();
           chatTimestamps.removeWhere(
-              (t) => now2.difference(t) > kChatWindow);
+              (t) => chatNow.difference(t) > kChatWindow);
           if (chatTimestamps.length >= kMaxChatMsgs) {
             channel.sink.add(
               GameMessage.error(reason: 'CHAT_RATE_LIMITED').toJsonString(),
             );
             return;
           }
-          chatTimestamps.add(now2);
+          chatTimestamps.add(chatNow);
 
           final rawText = message.payload['text'] as String? ?? '';
           // Strip control characters and enforce 200-char cap.

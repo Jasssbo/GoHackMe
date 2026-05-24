@@ -16,6 +16,7 @@ class RoomManager {
   static const _kMaxRooms = 50;
 
   final _rooms = HashMap<String, GameRoom>();
+  final _reapTimers = HashMap<String, Timer>();
 
   // ── Public API ────────────────────────────────────────────────────────────
 
@@ -76,13 +77,16 @@ class RoomManager {
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   void _reap(String roomId) {
+    _reapTimers.remove(roomId)?.cancel();
     final room = _rooms.remove(roomId);
     room?.dispose(); // cancel pending reconnect + turn timers
     print('[RoomManager] reaped room $roomId (${_rooms.length} remaining)');
   }
 
   void _scheduleReap(String roomId) {
-    Timer(_kRoomTimeout, () {
+    _reapTimers[roomId]?.cancel();
+    _reapTimers[roomId] = Timer(_kRoomTimeout, () {
+      _reapTimers.remove(roomId);
       final room = _rooms[roomId];
       if (room != null && room.isEmpty) _reap(roomId);
     });

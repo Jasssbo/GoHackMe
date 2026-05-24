@@ -359,16 +359,42 @@ class _GameLayoutState extends State<GameLayout> {
     );
   }
 
-  Widget _buildTerminalPanel() {
+  Widget _buildAttackPanel(bool inAttack, bool isPicking) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const PanelHeader('// LOGS'),
-        const PanelDivider(),
-        Expanded(child: GameTerminalLog(lines: widget.logLines)),
-        if (widget.onChatSend != null) ...[
-          const PanelDivider(),
-          _ChatInput(onSend: widget.onChatSend!),
+        if (inAttack && !isPicking) ...[
+          const PanelHeader('// ATTACK_VECTOR'),
+          Expanded(
+            child: SingleChildScrollView(
+              child: AttackCardsPanel(
+                subnets: widget.state.subnetsOf(widget.localPlayerId),
+                players: widget.state.players,
+                localPlayerId: widget.localPlayerId,
+                onAttack: widget.onAttack,
+                onPickPosition: _onPickPosition,
+              ),
+            ),
+          ),
+        ] else ...[
+          const PanelHeader('// LAYER_STATUS'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
+            child: Text(
+              widget.state.phase == GamePhase.attack
+                  ? (widget.state.currentPlayerId == widget.localPlayerId
+                      ? '> YOUR_TURN.exe'
+                      : '> AWAITING_ENTITY_UPLINK')
+                  : '> LAYER::${widget.state.phase.name.toUpperCase()}',
+              style: const TextStyle(
+                color: CyberpunkColors.green,
+                fontSize: 10,
+                letterSpacing: 1,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+          const Spacer(),
         ],
         const PanelDivider(),
         const AttackCodex(),
@@ -388,14 +414,13 @@ class _GameLayoutState extends State<GameLayout> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(child: _buildTerminalPanel()),
+              Expanded(child: _buildAttackPanel(inAttack, isPicking)),
               Container(width: 1, color: const Color(0xFF0C1814)),
               GameSidePanel(
                 state: widget.state,
                 localPlayerId: widget.localPlayerId,
-                inAttack: inAttack && !isPicking,
-                onAttack: widget.onAttack,
-                onPickPosition: _onPickPosition,
+                logLines: widget.logLines,
+                onChatSend: widget.onChatSend,
               ),
             ],
           ),
@@ -426,19 +451,18 @@ class _GameLayoutState extends State<GameLayout> {
             children: [
               Expanded(
                 flex: 3,
-                child: GameSidePanel(
-                  state: widget.state,
-                  localPlayerId: widget.localPlayerId,
-                  inAttack: inAttack && !isPicking,
-                  onAttack: widget.onAttack,
-                  onPickPosition: _onPickPosition,
-                  fillWidth: true,
-                ),
+                child: _buildAttackPanel(inAttack, isPicking),
               ),
               const PanelDivider(),
               Expanded(
                 flex: 2,
-                child: _buildTerminalPanel(),
+                child: GameSidePanel(
+                  state: widget.state,
+                  localPlayerId: widget.localPlayerId,
+                  logLines: widget.logLines,
+                  onChatSend: widget.onChatSend,
+                  fillWidth: true,
+                ),
               ),
             ],
           ),
@@ -598,9 +622,8 @@ class _StripButton extends StatelessWidget {
 class GameSidePanel extends StatelessWidget {
   final GameState state;
   final String localPlayerId;
-  final bool inAttack;
-  final void Function(AttackAction) onAttack;
-  final void Function(AttackAction partial) onPickPosition;
+  final List<String> logLines;
+  final void Function(String)? onChatSend;
   /// When true the panel expands to fill its parent's width instead of using
   /// the default fixed [context.s(180)] — used in the landscape layout.
   final bool fillWidth;
@@ -609,9 +632,8 @@ class GameSidePanel extends StatelessWidget {
     super.key,
     required this.state,
     required this.localPlayerId,
-    required this.inAttack,
-    required this.onAttack,
-    required this.onPickPosition,
+    required this.logLines,
+    this.onChatSend,
     this.fillWidth = false,
   });
 
@@ -630,37 +652,13 @@ class GameSidePanel extends StatelessWidget {
           ..._playerRows(),
           const PanelDivider(),
 
-          // ── Attack or status ──────────────────────────────────────
-          if (inAttack) ...[
-            const PanelHeader('// ATTACK_VECTOR'),
-            Expanded(
-              child: SingleChildScrollView(
-                child: AttackCardsPanel(
-                  subnets: state.subnetsOf(localPlayerId),
-                  players: state.players,
-                  localPlayerId: localPlayerId,
-                  onAttack: onAttack,                  onPickPosition: onPickPosition,                ),
-              ),
-            ),
-          ] else ...[
-            const PanelHeader('// LAYER_STATUS'),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
-              child: Text(
-                state.phase == GamePhase.attack
-                    ? (state.currentPlayerId == localPlayerId
-                        ? '> YOUR_TURN.exe'
-                        : '> AWAITING_ENTITY_UPLINK')
-                    : '> LAYER::${state.phase.name.toUpperCase()}',
-                style: const TextStyle(
-                  color: CyberpunkColors.green,
-                  fontSize: 10,
-                  letterSpacing: 1,
-                  fontFamily: 'monospace',
-                ),
-              ),
-            ),
-            const Spacer(),
+          // ── Logs ─────────────────────────────────────────────────
+          const PanelHeader('// LOGS'),
+          const PanelDivider(),
+          Expanded(child: GameTerminalLog(lines: logLines)),
+          if (onChatSend != null) ...[
+            const PanelDivider(),
+            _ChatInput(onSend: onChatSend!),
           ],
         ],
       ),

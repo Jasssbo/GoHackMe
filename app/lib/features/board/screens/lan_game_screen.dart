@@ -115,6 +115,7 @@ class _LanGameScreenState extends ConsumerState<LanGameScreen> {
         );
 
       case LanGameStatus.over:
+        if (ls.gameState == null) return const SizedBox.shrink();
         return _GameOverPanel(
           state: ls.gameState!,
           logLines: ls.logLines,
@@ -122,7 +123,8 @@ class _LanGameScreenState extends ConsumerState<LanGameScreen> {
         );
 
       case LanGameStatus.playing:
-        final gs = ls.gameState!;
+        final gs = ls.gameState;
+        if (gs == null) return const SizedBox.shrink();
         return GameLayout(
           state: gs,
           localPlayerId: ls.localPlayerId,

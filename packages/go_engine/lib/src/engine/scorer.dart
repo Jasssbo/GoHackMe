@@ -65,7 +65,7 @@ class Scorer {
   /// The formula rewards capturing opponent stones and growing influence:
   ///   base 1 subnet per placement
   ///   +1 per captured stone (already removed from board when this is called)
-  ///   +1 bonus for placing on the 4 star-point positions (influence nodes)
+  ///   +1 bonus for placing on a star-point position (influence node)
   static int subnetsForPlacement(
     Board board,
     Position pos,
@@ -97,7 +97,11 @@ class Scorer {
   }
 
   static bool _isStarPoint(Position pos, int size) {
-    const starPoints9 = {3, 6};
+    // 0-indexed star-point coordinates for standard board sizes.
+    // 9×9:  corners (2,2)/(2,6)/(6,2)/(6,6) + sides + tengen (4,4)
+    // 13×13: corners (3,3) etc. + tengen (6,6)
+    // 19×19: corners (3,3) etc. + tengen (9,9)
+    const starPoints9 = {2, 4, 6};
     const starPoints13 = {3, 6, 9};
     const starPoints19 = {3, 9, 15};
 

@@ -159,7 +159,7 @@ class WiredServerService implements IGameTransport {
       _handleMessage,
       onDone: _onDone,
       onError: _onWsError,
-      cancelOnError: false,
+      cancelOnError: true,
     );
 
     // Announce ourselves; server creates the room if it doesn't exist.
@@ -207,7 +207,7 @@ class WiredServerService implements IGameTransport {
           );
           if (!_players.any((e) => e.id == player.id)) {
             _players.add(player);
-            _playersCtrl.add(List.from(_players));
+            _playersCtrl.add([..._players]);
           }
           _logCtrl.add('PLAYER_JOINED: ${player.displayName}');
         }
@@ -216,7 +216,7 @@ class WiredServerService implements IGameTransport {
         final pid = msg.payload['playerId'] as String?;
         if (pid != null) {
           _players.removeWhere((p) => p.id == pid);
-          _playersCtrl.add(List.from(_players));
+          _playersCtrl.add([..._players]);
           _logCtrl.add('PLAYER_LEFT: $pid');
         }
 
@@ -260,6 +260,11 @@ class WiredServerService implements IGameTransport {
       _errorCtrl.add('SERVER_DISCONNECTED');
       return;
     }
+    // Clear stale player list so it is rebuilt from server announcements
+    // after reconnection — players who left while we were disconnected
+    // would otherwise persist as ghost entries.
+    _players.clear();
+    _playersCtrl.add([]);
     _reconnectAttempts++;
     _logCtrl
         .add('RECONNECT_ATTEMPT: $_reconnectAttempts/$_kMaxReconnectAttempts');

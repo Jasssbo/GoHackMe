@@ -137,15 +137,15 @@ class BotPlayer {
     final botColor = StoneColor.fromIndex(playerIndex);
 
     // ── 1. Capture: find moves that complete a capture ──────────────────
-    final captureSet = _captureMoves(state.board, botColor, legal);
-    if (captureSet.isNotEmpty) {
-      return _pickRandom(captureSet.toList(), rand);
+    final captureMoves = _captureMoves(state.board, botColor, legal);
+    if (captureMoves.isNotEmpty) {
+      return _pickRandom(captureMoves, rand);
     }
 
-    // ── 2. Save own groups in atari ──────────────────────────────────────
+    // ── 2. Save own groups in atari ──────────────────────────────────
     final saveMoves = _saveMoves(state.board, botColor, legal);
     if (saveMoves.isNotEmpty) {
-      return _pickRandom(saveMoves.toList(), rand);
+      return _pickRandom(saveMoves, rand);
     }
 
     // ── 3. Filter self-atari moves (unless no other option) ─────────────
@@ -184,14 +184,8 @@ class BotPlayer {
     Board board,
     StoneColor botColor,
     List<Position> legal,
-  ) {
-    final result = <Position>[];
-    for (final pos in legal) {
-      if (!_isSavingMove(board, pos, botColor)) continue;
-      result.add(pos);
-    }
-    return result;
-  }
+  ) =>
+      legal.where((pos) => _isSavingMove(board, pos, botColor)).toList();
 
   static bool _isSavingMove(Board board, Position pos, StoneColor botColor) {
     // Check if any adjacent own group is in atari (1 liberty)
