@@ -363,7 +363,7 @@ class _GameLayoutState extends State<GameLayout> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const PanelHeader('// SIGNAL_LOG'),
+        const PanelHeader('// LOGS'),
         const PanelDivider(),
         Expanded(child: GameTerminalLog(lines: widget.logLines)),
         if (widget.onChatSend != null) ...[
@@ -848,7 +848,7 @@ class _AttackCodexState extends State<AttackCodex> {
                               child: Text(
                                 '[X]',
                                 style: TextStyle(
-                                  color: CyberpunkColors.error,
+                                  color: Colors.white,
                                   fontSize: 14,
                                   letterSpacing: 1,
                                   fontFamily: 'monospace',

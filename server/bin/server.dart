@@ -6,6 +6,7 @@ import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_router/shelf_router.dart';
 
 import 'package:gohackme_server/src/discovery_service.dart';
+import 'package:gohackme_server/src/geo_service.dart';
 import 'package:gohackme_server/src/room_manager.dart';
 import 'package:gohackme_server/src/ws_handler.dart';
 
@@ -111,12 +112,12 @@ Middleware _httpRateLimit() {
           return innerHandler(request);
         }
 
-        final ip = request.headers['cf-connecting-ip'] ??
-            (request.headers['x-forwarded-for']?.split(',').last.trim()) ??
-            (request.context['shelf.io.connection_info'] as HttpConnectionInfo?)
-                ?.remoteAddress
-                .address ??
-            'unknown';
+        // Reuse the same IP-extraction logic as geo_service: CF-Connecting-IP
+        // first, then X-Real-IP, then the first non-private XFF entry.
+        final connInfo = request.context['shelf.io.connection_info']
+            as HttpConnectionInfo?;
+        final rawIp = extractIp(request.headers, connInfo);
+        final ip = rawIp.isNotEmpty ? rawIp : 'unknown';
 
         final now = DateTime.now();
         final timestamps = counters.putIfAbsent(ip, () => []);

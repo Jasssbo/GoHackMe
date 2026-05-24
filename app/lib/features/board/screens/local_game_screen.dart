@@ -223,7 +223,7 @@ class _GameOverScreen extends StatelessWidget {
 
               // Terminal log snippet (last 8 lines)
               const Text(
-                '// SIGNAL_LOG',
+                '// LOGS',
                 style: TextStyle(
                   color: CyberpunkColors.cyanDim,
                   fontSize: 9,
