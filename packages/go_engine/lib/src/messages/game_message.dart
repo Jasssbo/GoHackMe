@@ -170,6 +170,7 @@ class GameMessage {
     required String roomId,
     required GameState state,
     String? logMessage,
+    DateTime? turnStartedAt,
   }) =>
       GameMessage(
         type: MessageType.gameStateUpdate,
@@ -177,6 +178,8 @@ class GameMessage {
         payload: {
           'state': state.toJson(),
           if (logMessage != null) 'log': logMessage,
+          if (turnStartedAt != null)
+            'turnStartedAt': turnStartedAt.millisecondsSinceEpoch,
         },
       );
 

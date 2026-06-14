@@ -58,6 +58,45 @@ class Scorer {
     return scores;
   }
 
+  // ── Territory regions (for scoring overlay) ──────────────────────────────
+
+  /// Returns a map of empty [Position]s → controlling [StoneColor] for every
+  /// empty intersection that is surrounded by exactly one player's stones.
+  ///
+  /// Positions touched by more than one player (contested) are omitted.
+  /// Use this to drive the board's scoring-phase territory overlay.
+  static Map<Position, StoneColor> territoryRegions(Board board) {
+    final result  = <Position, StoneColor>{};
+    final counted = <Position>{};
+
+    for (int y = 0; y < board.size; y++) {
+      for (int x = 0; x < board.size; x++) {
+        final pos = Position(x, y);
+        if (board.at(pos) != null) continue;
+        if (counted.contains(pos)) continue;
+
+        final region = _floodFillEmpty(board, pos);
+        counted.addAll(region);
+
+        final borderColors = <StoneColor>{};
+        for (final emptyPos in region) {
+          for (final neighbor in board.neighborsOf(emptyPos)) {
+            final stone = board.at(neighbor);
+            if (stone != null) borderColors.add(stone);
+          }
+        }
+
+        if (borderColors.length == 1) {
+          for (final p in region) {
+            result[p] = borderColors.first;
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
   // ── Subnet bonus at placement ─────────────────────────────────────────────
 
   /// Returns how many subnets a player earns by placing at [pos].

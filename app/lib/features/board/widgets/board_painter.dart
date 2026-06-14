@@ -112,6 +112,10 @@ class BoardPainter extends CustomPainter {
   final double elevation;
   final double zoom;
 
+  /// When non-null (scoring/finished phase) each entry marks an empty
+  /// intersection controlled by the given [StoneColor] as territory.
+  final Map<Position, StoneColor>? scoringTerritory;
+
   BoardPainter({
     required this.board,
     required this.boardSize,
@@ -124,6 +128,7 @@ class BoardPainter extends CustomPainter {
     this.azimuth   = math.pi / 4,
     this.elevation = 0.546,
     this.zoom      = 1.0,
+    this.scoringTerritory,
   });
 
   var _cosAz   = 0.0;
@@ -169,6 +174,7 @@ class BoardPainter extends CustomPainter {
     _drawBackground(canvas, size);
     _drawBoardSlab(canvas, size);
     _drawNodeConnections(canvas);   // same-player adjacency traces
+    _drawScoringOverlay(canvas);
     _drawCoordLabels(canvas);
     _drawStones(canvas);
     _drawFlicker(canvas, size);
@@ -502,11 +508,47 @@ class BoardPainter extends CustomPainter {
       fontFamily: 'monospace',
     );
     for (int i = 0; i < n; i++) {
+      // Skip 'I' per standard Go convention (A-H then J-T).
+      final charCode = i < 8 ? 65 + i : 66 + i;
       final lp = _proj(-0.80, i.toDouble(), 0);
-      _label(canvas, String.fromCharCode(65 + i),
+      _label(canvas, String.fromCharCode(charCode),
           lp + Offset(-fs * 0.5, -fs * 0.5), style);
       final rp = _proj(n1 + 0.50, i.toDouble(), 0);
       _label(canvas, '${i + 1}', rp + Offset(0, -fs * 0.5), style);
+    }
+  }
+
+  /// Draws small diamond markers on empty intersections that are claimed
+  /// territory during the scoring/finished phase.
+  void _drawScoringOverlay(Canvas canvas) {
+    final territory = scoringTerritory;
+    if (territory == null || territory.isEmpty) return;
+    for (final entry in territory.entries) {
+      final identity = _signalIdentities[entry.value];
+      if (identity == null) continue;
+      final c    = _proj(entry.key.x.toDouble(), entry.key.y.toDouble(), 0.012);
+      final half = _s * 0.16;
+      // Soft glow halo
+      canvas.drawCircle(
+        c,
+        half * 2.0,
+        Paint()
+          ..color = identity.baseColor.withValues(alpha: 0.14)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, half * 1.8),
+      );
+      // Small diamond
+      final path = Path()
+        ..moveTo(c.dx,        c.dy - half)
+        ..lineTo(c.dx + half * 0.7, c.dy)
+        ..lineTo(c.dx,        c.dy + half)
+        ..lineTo(c.dx - half * 0.7, c.dy)
+        ..close();
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = identity.baseColor.withValues(alpha: 0.70)
+          ..style = PaintingStyle.fill,
+      );
     }
   }
 

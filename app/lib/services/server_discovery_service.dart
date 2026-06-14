@@ -1,10 +1,27 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:crypto/crypto.dart';
 
 /// UDP port that matches the server's [kDiscoveryPort].
 const _kDiscoveryPort = 8081;
 const _kProbe = 'GOHACKME_DISCOVER';
 const _kReplyPrefix = 'GOHACKME_SERVER:';
+
+/// Shared HMAC key — must match [_kDiscoveryHmacKey] in the server package.
+const _kDiscoveryHmacKey = 'GOHACKME_DISCOVERY_v1';
+
+/// Returns the first 8 bytes of HMAC-SHA256(payload) as a 16-char hex string.
+String _discoveryHmacTag(String payload) {
+  final mac = Hmac(sha256, utf8.encode(_kDiscoveryHmacKey));
+  return mac
+      .convert(utf8.encode(payload))
+      .bytes
+      .take(8)
+      .map((b) => b.toRadixString(16).padLeft(2, '0'))
+      .join();
+}
 
 /// Scans the local network for a running GoHackMe server.
 ///
@@ -42,10 +59,17 @@ Future<String?> discoverServer({
     if (dg == null) return;
 
     final msg = String.fromCharCodes(dg.data).trim();
-    if (msg.startsWith(_kReplyPrefix) && !completer.isCompleted) {
-      final port = msg.substring(_kReplyPrefix.length).trim();
-      completer.complete('ws://${dg.address.address}:$port/ws');
-    }
+    if (!msg.startsWith(_kReplyPrefix) || completer.isCompleted) return;
+
+    // Expected format: GOHACKME_SERVER:<port>:<16-hex-hmac>
+    // Reject replies that lack a valid HMAC to prevent casual LAN spoofing.
+    final rest = msg.substring(_kReplyPrefix.length).trim();
+    final lastColon = rest.lastIndexOf(':');
+    if (lastColon < 1) return; // malformed or unauthenticated reply
+    final portStr = rest.substring(0, lastColon).trim();
+    final receivedTag = rest.substring(lastColon + 1).trim();
+    if (receivedTag != _discoveryHmacTag('$_kReplyPrefix$portStr')) return;
+    completer.complete('ws://${dg.address.address}:$portStr/ws');
   });
 
   // Send the broadcast probe.

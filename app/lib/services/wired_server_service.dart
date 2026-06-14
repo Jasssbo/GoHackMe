@@ -81,10 +81,11 @@ class WiredServerService implements IGameTransport {
   int _boardSize = 19;
   int _maxPlayers = 2;
 
-  final _stateCtrl = StreamController<GameState>.broadcast();
-  final _logCtrl = StreamController<String>.broadcast();
-  final _errorCtrl = StreamController<String>.broadcast();
+  final _stateCtrl   = StreamController<GameState>.broadcast();
+  final _logCtrl     = StreamController<String>.broadcast();
+  final _errorCtrl   = StreamController<String>.broadcast();
   final _playersCtrl = StreamController<List<ConnectedPlayer>>.broadcast();
+  final _turnTsCtrl  = StreamController<DateTime?>.broadcast();
   final _players = <ConnectedPlayer>[];
 
   @override
@@ -95,6 +96,8 @@ class WiredServerService implements IGameTransport {
   Stream<String> get errorStream => _errorCtrl.stream;
   @override
   Stream<List<ConnectedPlayer>> get playerListStream => _playersCtrl.stream;
+  @override
+  Stream<DateTime?> get turnStartedAtStream => _turnTsCtrl.stream;
 
   // ── Connection ────────────────────────────────────────────────────────────
 
@@ -120,10 +123,18 @@ class WiredServerService implements IGameTransport {
       _errorCtrl.add('INVALID_SERVER_URL');
       return;
     }
-    // Convert http(s):// → ws(s):// using Uri to avoid fragile string replacements.
+    // Convert http(s):// → ws(s)://.
+    // Reject plain HTTP for non-localhost hosts: internet-facing Wired
+    // connections must use TLS.  http://localhost is allowed for local dev.
     final baseUri = Uri.tryParse(base);
     if (baseUri == null) {
       _errorCtrl.add('INVALID_SERVER_URL');
+      return;
+    }
+    final isLocalhost =
+        baseUri.host == 'localhost' || baseUri.host == '127.0.0.1';
+    if (baseUri.scheme == 'http' && !isLocalhost) {
+      _errorCtrl.add('INSECURE_SERVER_URL');
       return;
     }
     final wsScheme = baseUri.scheme == 'https' ? 'wss' : 'ws';
@@ -194,6 +205,11 @@ class WiredServerService implements IGameTransport {
           } catch (e) {
             _logCtrl.add('STATE_PARSE_ERROR: $e');
           }
+        }
+        final tsMs = msg.payload['turnStartedAt'];
+        if (tsMs is int) {
+          _turnTsCtrl.add(
+              DateTime.fromMillisecondsSinceEpoch(tsMs, isUtc: true));
         }
         final log = msg.payload['log'] as String?;
         if (log != null && log.isNotEmpty) _logCtrl.add(log);

@@ -145,6 +145,7 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
           attackBurst: _attackGlitch,
           logLines: ws.logLines,
           lastPlaced: _lastPlaced,
+          serverTurnStartedAt: ws.serverTurnStartedAt,
           onExit: () => _leave(context),
           onPass: () => ref.read(wiredGameProvider.notifier).pass(),
           onPlace: (pos) {

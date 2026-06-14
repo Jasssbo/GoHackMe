@@ -10,11 +10,8 @@ enum GamePhase {
   /// Room created, waiting for minimum players to join.
   lobby,
 
-  /// Active player must place a stone or pass.
-  placement,
-
-  /// Active player may optionally spend subnets on attacks.
-  /// After resolving (or skipping), the turn advances.
+  /// Active player may optionally spend subnets on attacks, then places a
+  /// stone or passes. After resolving, the turn advances.
   attack,
 
   /// Both/all players have passed consecutively; dead-stone agreement needed.

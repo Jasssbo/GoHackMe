@@ -101,6 +101,7 @@ class _LocalGameScreenState extends ConsumerState<LocalGameScreen> {
                       _attackGlitch.value++;
                       notifier.launchAttack(action);
                     },
+                    onUndo: notifier.canUndo ? () => notifier.undo() : null,
                   ),
       ),
     );

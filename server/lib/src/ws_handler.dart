@@ -253,7 +253,6 @@ Handler buildWsHandler(RoomManager roomManager) {
                   roomId,
                   lat: geo.lat,
                   lon: geo.lon,
-                  city: geo.city,
                   country: geo.country,
                 );
               }

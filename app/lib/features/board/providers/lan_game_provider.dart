@@ -116,7 +116,7 @@ class LanGameNotifier extends Notifier<LanGameState> {
   }) async {
     await _reset();
 
-    final roomCode = const Uuid().v4().substring(0, 6).toUpperCase();
+    final roomCode = const Uuid().v4().substring(0, 8).toUpperCase();
     final svc = LanHostService();
     _hostService = svc;
     _transport = svc;

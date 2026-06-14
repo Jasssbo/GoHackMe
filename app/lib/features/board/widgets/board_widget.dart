@@ -27,6 +27,10 @@ class BoardWidget extends StatefulWidget {
   /// When non-null, that player's stones will blink gently.
   final StoneColor? activePlayerColor;
 
+  /// When non-null (scoring/finished phase) each entry is an empty
+  /// intersection claimed as territory by the given [StoneColor].
+  final Map<Position, StoneColor>? scoringTerritory;
+
   const BoardWidget({
     super.key,
     required this.board,
@@ -34,6 +38,7 @@ class BoardWidget extends StatefulWidget {
     this.lastPlaced,
     this.onTap,
     this.activePlayerColor,
+    this.scoringTerritory,
   });
 
   @override
@@ -228,6 +233,7 @@ class _BoardWidgetState extends State<BoardWidget>
                   zoom:              _zoom,
                   activePlayerColor: widget.activePlayerColor,
                   activePulse:       _turnCtrl.value,
+                  scoringTerritory:  widget.scoringTerritory,
                 ),
               ),
             ),

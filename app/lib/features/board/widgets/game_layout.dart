@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_engine/go_engine.dart';
 
 import '../../../core/theme/cyberpunk_colors.dart';
@@ -38,6 +39,15 @@ class GameLayout extends StatefulWidget {
   /// When null the chat input is hidden (e.g. local / LAN games).
   final void Function(String)? onChatSend;
 
+  /// Optional: called to undo the last move (solo mode only).
+  /// When null the UNDO button is hidden.
+  final VoidCallback? onUndo;
+
+  /// When non-null, the client seeds the turn countdown from the server's
+  /// authoritative start time rather than always resetting to 15 s.
+  /// This keeps the display correct after reconnects.
+  final DateTime? serverTurnStartedAt;
+
   const GameLayout({
     super.key,
     required this.state,
@@ -51,6 +61,8 @@ class GameLayout extends StatefulWidget {
     this.onExit,
     this.attackBurst,
     this.onChatSend,
+    this.onUndo,
+    this.serverTurnStartedAt,
   });
 
   @override
@@ -102,7 +114,15 @@ class _GameLayoutState extends State<GameLayout> {
 
   void _resetTurnCountdown() {
     _turnCountdownTimer?.cancel();
-    _turnSecondsLeft = _kTurnSeconds;
+    // If the server supplied a turn start timestamp, compute how many seconds
+    // remain instead of always resetting to the full 15 s.
+    final ts = widget.serverTurnStartedAt;
+    if (ts != null) {
+      final elapsed = DateTime.now().toUtc().difference(ts).inSeconds;
+      _turnSecondsLeft = (_kTurnSeconds - elapsed).clamp(0, _kTurnSeconds);
+    } else {
+      _turnSecondsLeft = _kTurnSeconds;
+    }
     _turnCountdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (!mounted) { t.cancel(); return; }
       setState(() {
@@ -159,6 +179,12 @@ class _GameLayoutState extends State<GameLayout> {
         oldWidget.state.phase != widget.state.phase) {
       _resetTurnCountdown();
     }
+    // Haptic feedback on capture events.
+    final prevCaptures = oldWidget.state.captureCount.values
+        .fold(0, (s, v) => s + v);
+    final nextCaptures = widget.state.captureCount.values
+        .fold(0, (s, v) => s + v);
+    if (nextCaptures > prevCaptures) HapticFeedback.heavyImpact();
   }
 
   void _onPickPosition(AttackAction partial) {
@@ -181,6 +207,7 @@ class _GameLayoutState extends State<GameLayout> {
         );
         if (owner.id.isEmpty) return;
         setState(() => _pendingPositionAttack = null);
+        HapticFeedback.lightImpact();
         widget.onAttack(AttackAction(
           type: pending.type,
           attackerPlayerId: pending.attackerPlayerId,
@@ -191,6 +218,7 @@ class _GameLayoutState extends State<GameLayout> {
       }
       // For all other position-based attacks (HONEYPOT), use the stored target.
       setState(() => _pendingPositionAttack = null);
+      HapticFeedback.lightImpact();
       widget.onAttack(AttackAction(
         type: pending.type,
         attackerPlayerId: pending.attackerPlayerId,
@@ -198,6 +226,7 @@ class _GameLayoutState extends State<GameLayout> {
         targetPosition: pos,
       ));
     } else {
+      HapticFeedback.mediumImpact();
       widget.onPlace(pos);
     }
   }
@@ -219,6 +248,7 @@ class _GameLayoutState extends State<GameLayout> {
             localPlayerId: widget.localPlayerId,
             onPass: widget.onPass,
             onExit: widget.onExit,
+            onUndo: widget.onUndo,
             turnSecondsLeft: _turnSecondsLeft,
           ),
           Expanded(
@@ -347,6 +377,10 @@ class _GameLayoutState extends State<GameLayout> {
             lastPlaced: widget.lastPlaced,
             activePlayerColor: widget.state.currentPlayerColor(
                 widget.state.currentPlayerId),
+            scoringTerritory: (widget.state.phase == GamePhase.scoring ||
+                    widget.state.phase == GamePhase.finished)
+                ? Scorer.territoryRegions(widget.state.board)
+                : null,
             onTap: isMyTurn &&
                     (widget.state.phase == GamePhase.attack ||
                         widget.state.phase ==
@@ -479,6 +513,7 @@ class GameStatusStrip extends StatelessWidget {
   final String localPlayerId;
   final VoidCallback? onPass;
   final VoidCallback? onExit;
+  final VoidCallback? onUndo;
   final int turnSecondsLeft;
 
   const GameStatusStrip({
@@ -487,6 +522,7 @@ class GameStatusStrip extends StatelessWidget {
     required this.localPlayerId,
     this.onPass,
     this.onExit,
+    this.onUndo,
     this.turnSecondsLeft = 15,
   });
 
@@ -516,6 +552,14 @@ class GameStatusStrip extends StatelessWidget {
             ),
             const SizedBox(width: 8),
           ],
+          if (onUndo != null) ...[
+            _StripButton(
+              label: 'UNDO',
+              color: CyberpunkColors.magenta,
+              onTap: onUndo!,
+            ),
+            const SizedBox(width: 8),
+          ],
           Text(
             isMyTurn
                 ? '◉ ${state.currentPlayer.displayName}'
@@ -530,6 +574,17 @@ class GameStatusStrip extends StatelessWidget {
             ),
           ),
           const Spacer(),
+          // ── Move counter ─────────────────────────
+          Text(
+            'T:${state.turnNumber}',
+            style: TextStyle(
+              color: CyberpunkColors.cyanDim.withValues(alpha: 0.70),
+              fontSize: 9,
+              letterSpacing: 1,
+              fontFamily: 'monospace',
+            ),
+          ),
+          const SizedBox(width: 8),
           // ── Turn countdown ───────────────────────
           if (isActive)
             Text(

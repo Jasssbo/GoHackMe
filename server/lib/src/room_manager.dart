@@ -52,25 +52,23 @@ class RoomManager {
             'playerCount': r.playerCount,
             'maxPlayers': r.maxPlayers,
             'reconnecting': r.hasReconnectSlots,
-            if (r.hostLat != null) 'lat': r.hostLat,
-            if (r.hostLon != null) 'lon': r.hostLon,
-            if (r.hostCity != null && r.hostCity!.isNotEmpty) 'city': r.hostCity,
+            // Coordinates are rounded to ~11 km precision (1 decimal place)
+            // to reduce host location privacy exposure in the lobby browser.
+            if (r.hostLat != null) 'lat': (r.hostLat! * 10).round() / 10.0,
+            if (r.hostLon != null) 'lon': (r.hostLon! * 10).round() / 10.0,
+            // city is omitted — too precise for public API (privacy, MUST 4C).
             if (r.hostCountry != null && r.hostCountry!.isNotEmpty)
               'country': r.hostCountry,
           })
       .toList();
 
-  /// Stores the geolocation result for the host of [roomId].
+  /// Stores the country-centroid pin for the host of [roomId].
   void setRoomGeo(String roomId,
-      {required double lat,
-      required double lon,
-      required String city,
-      required String country}) {
+      {required double lat, required double lon, required String country}) {
     final room = _rooms[roomId];
     if (room == null) return;
     room.hostLat = lat;
     room.hostLon = lon;
-    room.hostCity = city;
     room.hostCountry = country;
   }
 

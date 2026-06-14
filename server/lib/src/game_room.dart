@@ -35,15 +35,16 @@ class GameRoom {
 
   // ── Turn timer ────────────────────────────────────────────────────────────
   Timer? _turnTimer;
+  DateTime? _turnStartedAt; // wall-clock time when the current turn began
   static const _kTurnTimeout = Duration(seconds: 15);
 
   // Configurable – host sets this when creating the room
   int maxPlayers;
 
-  // Host IP geolocation — populated asynchronously after first join.
+  // Country-centroid pin — populated asynchronously after the first player joins.
+  // Stores the geographic centre of the host's country, not their real location.
   double? hostLat;
   double? hostLon;
-  String? hostCity;
   String? hostCountry;
 
   GameRoom({
@@ -269,6 +270,7 @@ class GameRoom {
   /// When it fires the server auto-acts on behalf of the inactive player.
   void _resetTurnTimer() {
     _turnTimer?.cancel();
+    _turnStartedAt = DateTime.now().toUtc();
     if (_state == null || _state!.phase == GamePhase.scoring) return;
     final playerId = _state!.currentPlayerId;
     _turnTimer = Timer(_kTurnTimeout, () {
@@ -317,6 +319,7 @@ class GameRoom {
       roomId: id,
       state: _state!,
       logMessage: logMessage,
+      turnStartedAt: _turnStartedAt,
     ));
   }
 

@@ -43,6 +43,9 @@ class WiredGameState {
   final List<ConnectedPlayer> connectedPlayers;
   final int maxPlayers;
   final String? errorMessage;
+  /// Server wall-clock time when the current turn started.
+  /// Used by [GameLayout] to keep the turn countdown in sync after reconnects.
+  final DateTime? serverTurnStartedAt;
 
   const WiredGameState({
     this.status = WiredStatus.idle,
@@ -54,6 +57,7 @@ class WiredGameState {
     this.connectedPlayers = const [],
     this.maxPlayers = 2,
     this.errorMessage,
+    this.serverTurnStartedAt,
   });
 
   WiredGameState copyWith({
@@ -66,6 +70,8 @@ class WiredGameState {
     List<ConnectedPlayer>? connectedPlayers,
     int? maxPlayers,
     String? errorMessage,
+    DateTime? serverTurnStartedAt,
+    bool clearTurnStartedAt = false,
   }) =>
       WiredGameState(
         status: status ?? this.status,
@@ -77,6 +83,9 @@ class WiredGameState {
         connectedPlayers: connectedPlayers ?? this.connectedPlayers,
         maxPlayers: maxPlayers ?? this.maxPlayers,
         errorMessage: errorMessage ?? this.errorMessage,
+        serverTurnStartedAt: clearTurnStartedAt
+            ? null
+            : (serverTurnStartedAt ?? this.serverTurnStartedAt),
       );
 }
 
@@ -110,7 +119,7 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     required int maxPlayers,
   }) async {
     await _reset();
-    final roomCode = const Uuid().v4().substring(0, 6).toUpperCase();
+    final roomCode = const Uuid().v4().substring(0, 8).toUpperCase();
     final svc = WiredServerService();
     _transport = svc;
 
@@ -225,6 +234,7 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
     _subs.add(t.logStream.listen(_onLog));
     _subs.add(t.errorStream.listen(_onError));
     _subs.add(t.playerListStream.listen(_onPlayerList));
+    _subs.add(t.turnStartedAtStream.listen(_onTurnStartedAt));
   }
 
   void _onLog(String line) {
@@ -238,6 +248,10 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
       status: isOver ? WiredStatus.over : WiredStatus.playing,
       gameState: gs,
     );
+  }
+
+  void _onTurnStartedAt(DateTime? ts) {
+    state = state.copyWith(serverTurnStartedAt: ts);
   }
 
   void _onPlayerList(List<ConnectedPlayer> players) {

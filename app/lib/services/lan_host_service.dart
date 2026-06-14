@@ -96,6 +96,9 @@ class LanHostService implements IGameTransport {
   Stream<String> get errorStream => _errorCtrl.stream;
   @override
   Stream<List<ConnectedPlayer>> get playerListStream => _playersCtrl.stream;
+  @override
+  // LAN play is real-time; no clock-sync needed.
+  Stream<DateTime?> get turnStartedAtStream => const Stream.empty();
 
   List<ConnectedPlayer> get players => List.unmodifiable(_pending);
   GameState? get currentState => _state;
@@ -226,7 +229,41 @@ class LanHostService implements IGameTransport {
     }
   }
 
+  /// UUID v4 pattern — must match the format the Flutter client generates.
+  static final _kUuidPattern = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+    caseSensitive: false,
+  );
+
   void _handleJoin(_ClientConn conn, String pid, GameMessage msg) {
+    // ── Validate player ID format to prevent log injection and spoofing ────
+    if (!_kUuidPattern.hasMatch(pid)) {
+      _sendTo(
+        conn,
+        const GameMessage(
+          type: MessageType.error,
+          payload: {'reason': 'INVALID_PLAYER_ID_FORMAT'},
+        ),
+      );
+      conn.socket.destroy();
+      return;
+    }
+
+    // ── Reject if a different socket already owns this UUID ────────────────
+    // Without this check a second TCP client could claim an existing player's
+    // ID and send actions on their behalf until the original socket speaks.
+    if (_clients.containsKey(pid) && !_disconnectedPlayers.contains(pid)) {
+      _sendTo(
+        conn,
+        const GameMessage(
+          type: MessageType.error,
+          payload: {'reason': 'DUPLICATE_PLAYER_ID'},
+        ),
+      );
+      conn.socket.destroy();
+      return;
+    }
+
     // ── Reconnection: player was in the game but disconnected ──────────────
     if (_state != null && _disconnectedPlayers.contains(pid)) {
       _disconnectedPlayers.remove(pid);

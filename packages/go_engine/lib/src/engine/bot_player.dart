@@ -6,6 +6,7 @@ import '../models/game_state.dart';
 import '../models/position.dart';
 import '../models/stone_color.dart';
 import 'go_rules.dart';
+import 'scorer.dart';
 
 // ── Difficulty ────────────────────────────────────────────────────────────
 
@@ -16,6 +17,11 @@ enum BotDifficulty {
 
   /// Heuristic priority: capture atari → save own atari → avoid self-atari → random.
   intermediate,
+
+  /// Territory-influence evaluation: scores each candidate move by the change
+  /// in controlled empty intersections; also uses a smarter attack selection
+  /// that considers PATCH, TROJAN, and BACKDOOR in addition to DDOS.
+  advanced,
 }
 
 // ── BotPlayer ─────────────────────────────────────────────────────────────
@@ -52,6 +58,9 @@ class BotPlayer {
 
       case BotDifficulty.intermediate:
         return _pickHeuristic(state, botPlayerId, legal, rand);
+
+      case BotDifficulty.advanced:
+        return _pickAdvanced(state, botPlayerId, legal, rand);
     }
   }
 
@@ -69,6 +78,12 @@ class BotPlayer {
   }) {
     if (difficulty == BotDifficulty.beginner) return null;
 
+    if (difficulty == BotDifficulty.advanced) {
+      return _pickAdvancedAttack(state, botPlayerId, targetPlayerId,
+          rng ?? Random());
+    }
+
+    // intermediate: DDOS if target is richer
     final botSubnets = state.subnetsOf(botPlayerId);
     final ddosCost = AttackCard.forType(AttackType.ddos).subnetCost;
 
@@ -242,5 +257,150 @@ class BotPlayer {
       if (pick <= 0) return candidates[i];
     }
     return candidates.last;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Difficulty: advanced  (territory-influence evaluation)
+  //
+  // For each candidate move (up to 30 sampled randomly to keep it fast):
+  //   score = bot_territory_after - bot_territory_before + captured * 2
+  // Falls back to the intermediate heuristics for captures / saves so the
+  // bot never misses obvious tactical responses.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  static Position _pickAdvanced(
+    GameState state,
+    String botPlayerId,
+    List<Position> legal,
+    Random rand,
+  ) {
+    final playerIndex = state.players.indexWhere((p) => p.id == botPlayerId);
+    final botColor = StoneColor.fromIndex(playerIndex);
+
+    // Keep capture / save as top priority so advanced never blunders tactically.
+    final captureMoves = _captureMoves(state.board, botColor, legal);
+    if (captureMoves.isNotEmpty) return _pickRandom(captureMoves, rand);
+
+    final saveMoves = _saveMoves(state.board, botColor, legal);
+    if (saveMoves.isNotEmpty) return _pickRandom(saveMoves, rand);
+
+    final candidates = legal
+        .where((pos) => !_isSelfAtari(state.board, pos, botColor))
+        .toList();
+    if (candidates.isEmpty) return _pickRandom(legal, rand);
+
+    return _pickByTerritoryScore(state.board, botColor, candidates, rand);
+  }
+
+  /// Scores each sampled candidate by territory gain, picks the best.
+  static Position _pickByTerritoryScore(
+    Board board,
+    StoneColor botColor,
+    List<Position> candidates,
+    Random rand,
+  ) {
+    // Sample at most 30 to keep evaluation O(sample × board) not O(n²).
+    final sample = candidates.length > 30
+        ? (List<Position>.from(candidates)..shuffle(rand)).take(30).toList()
+        : candidates;
+
+    // Baseline territory owned by the bot.
+    final baseline = Scorer.territoryRegions(board);
+    final baseScore =
+        baseline.values.where((c) => c == botColor).length;
+
+    var bestScore = -1;
+    final bestMoves = <Position>[];
+
+    for (final pos in sample) {
+      final boardAfter = board.place(pos, botColor);
+      final (boardFinal, captured) =
+          GoRules.applyCapturesAfterPlacement(boardAfter, pos, botColor);
+      final regions = Scorer.territoryRegions(boardFinal);
+      final score = regions.values.where((c) => c == botColor).length
+          - baseScore
+          + captured.length * 2; // captures count double (removes enemy + gains territory)
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMoves
+          ..clear()
+          ..add(pos);
+      } else if (score == bestScore) {
+        bestMoves.add(pos);
+      }
+    }
+
+    return _pickRandom(bestMoves, rand);
+  }
+
+  /// Advanced attack selection:
+  ///   1. PATCH  – self-heal if under any debuff and can afford it.
+  ///   2. TROJAN – steal subnets if target is richer than us.
+  ///   3. BACKDOOR – free second placement when game is close (≤ board/3 stones apart).
+  ///   4. DDOS   – fallback crowd-control.
+  ///   5. null   – skip (insufficient subnets).
+  static AttackAction? _pickAdvancedAttack(
+    GameState state,
+    String botPlayerId,
+    String targetPlayerId,
+    Random rand,
+  ) {
+    final botSubnets    = state.subnetsOf(botPlayerId);
+    final targetSubnets = state.subnetsOf(targetPlayerId);
+
+    // 1. PATCH: remove any active debuff on ourselves.
+    const patchCost = 3; // AttackCard for patch
+    final isDebuffed = state.hasEffect(botPlayerId, AttackType.ddos) ||
+        state.hasEffect(botPlayerId, AttackType.psyche) ||
+        state.hasEffect(botPlayerId, AttackType.mitm);
+    if (isDebuffed && botSubnets >= patchCost) {
+      return AttackAction(
+        type: AttackType.patch,
+        attackerPlayerId: botPlayerId,
+        targetPlayerId: botPlayerId,
+      );
+    }
+
+    // 2. TROJAN: target has more subnets — steal half.
+    const trojanCost = 5;
+    if (botSubnets >= trojanCost && targetSubnets > botSubnets) {
+      return AttackAction(
+        type: AttackType.trojan,
+        attackerPlayerId: botPlayerId,
+        targetPlayerId: targetPlayerId,
+      );
+    }
+
+    // 3. BACKDOOR: close game → place two stones for tempo advantage.
+    const backdoorCost = 3;
+    final botColor    = state.currentPlayerColor(botPlayerId);
+    final targetColor = state.currentPlayerColor(targetPlayerId);
+    final botStones = state.board.stones.values
+        .where((c) => c == botColor)
+        .length;
+    final targetStones = state.board.stones.values
+        .where((c) => c == targetColor)
+        .length;
+    if (botSubnets >= backdoorCost &&
+        (targetStones - botStones).abs() <= state.board.size ~/ 3) {
+      return AttackAction(
+        type: AttackType.backdoor,
+        attackerPlayerId: botPlayerId,
+        targetPlayerId: botPlayerId,
+      );
+    }
+
+    // 4. DDOS fallback.
+    const ddosCost = 7;
+    if (botSubnets >= ddosCost) {
+      return AttackAction(
+        type: AttackType.ddos,
+        attackerPlayerId: botPlayerId,
+        targetPlayerId: targetPlayerId,
+      );
+    }
+
+    return null;
   }
 }

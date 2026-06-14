@@ -17,6 +17,10 @@ abstract interface class IGameTransport {
 
   Stream<List<ConnectedPlayer>> get playerListStream;
 
+  /// Emits the server wall-clock time when each new turn starts.
+  /// LAN transports emit null (no clock-sync needed for local play).
+  Stream<DateTime?> get turnStartedAtStream;
+
   /// Dispatches a player game-action message.
   ///
   /// For the host this applies the action directly to the engine; for a

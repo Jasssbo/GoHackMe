@@ -46,6 +46,10 @@ class LocalGameNotifier extends Notifier<GameState?> {
   /// IDs of all bot players in the current game.
   List<String> _botIds = ['bot_1'];
 
+  /// Undo history: states saved before each human placement or pass.
+  /// Capped at 10 entries so the user can undo up to 10 moves back.
+  final List<GameState> _undoHistory = [];
+
   bool _isBot(String playerId) => _botIds.contains(playerId);
 
   @override
@@ -69,6 +73,7 @@ class LocalGameNotifier extends Notifier<GameState?> {
     _botTurnPending = false;
     _difficulty = difficulty;
     _botIds = List.generate(botCount, (i) => 'bot_${i + 1}');
+    _undoHistory.clear();
 
     final botLabels = _makeBotLabels(difficulty, botCount);
     final players = [
@@ -113,6 +118,8 @@ class LocalGameNotifier extends Notifier<GameState?> {
     if (current == null) return;
     if (current.currentPlayerId != _humanId) return;
 
+    _undoHistory.add(current);
+    if (_undoHistory.length > 10) _undoHistory.removeAt(0);
     final result = GameEngine.placeStone(current, _humanId, pos);
     _applyResult(result);
   }
@@ -122,6 +129,8 @@ class LocalGameNotifier extends Notifier<GameState?> {
     if (current == null) return;
     if (current.currentPlayerId != _humanId) return;
 
+    _undoHistory.add(current);
+    if (_undoHistory.length > 10) _undoHistory.removeAt(0);
     final result = GameEngine.pass(current, _humanId);
     _applyResult(result);
   }
@@ -132,6 +141,26 @@ class LocalGameNotifier extends Notifier<GameState?> {
 
     final result = GameEngine.launchAttack(current, action);
     _applyResult(result);
+  }
+
+  // ── Undo ──────────────────────────────────────────────────────────────────
+
+  /// Whether there is a move to undo. True only on the human's attack turn.
+  bool get canUndo =>
+      _undoHistory.isNotEmpty &&
+      state != null &&
+      state!.phase == GamePhase.attack &&
+      state!.currentPlayerId == _humanId;
+
+  /// Reverts the game to the state before the last human placement or pass.
+  void undo() {
+    if (_undoHistory.isEmpty) return;
+    _turnTimer?.cancel();
+    _turnTimer = null;
+    _botTurnPending = false;
+    state = _undoHistory.removeLast();
+    ref.read(localGameLogProvider.notifier).append('>> UNDO :: MOVE_REVERTED');
+    _resetTurnTimer();
   }
 
   // ── Internal helpers ──────────────────────────────────────────────────────

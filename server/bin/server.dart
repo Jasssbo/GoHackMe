@@ -123,8 +123,10 @@ Middleware _httpRateLimit() {
         final timestamps = counters.putIfAbsent(ip, () => []);
         // Evict entries outside the current window.
         timestamps.removeWhere((t) => now.difference(t) > _kHttpRateWindow);
+        // Free the map entry once the window is empty to prevent unbounded growth.
+        if (timestamps.isEmpty) counters.remove(ip);
 
-        if (timestamps.length >= _kHttpRateLimit) {
+        if ((counters[ip]?.length ?? 0) >= _kHttpRateLimit) {
           return Response(429,
               body: '{"error":"RATE_LIMITED"}',
               headers: {

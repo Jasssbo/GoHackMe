@@ -51,6 +51,9 @@ class LanClientService implements IGameTransport {
   Stream<String> get errorStream => _errorCtrl.stream;
   @override
   Stream<List<ConnectedPlayer>> get playerListStream => _playersCtrl.stream;
+  @override
+  // LAN play is real-time; no clock-sync needed.
+  Stream<DateTime?> get turnStartedAtStream => const Stream.empty();
 
   bool get isConnected => _socket != null;
 
