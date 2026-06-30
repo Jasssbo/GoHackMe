@@ -212,6 +212,25 @@ class LanGameNotifier extends Notifier<LanGameState> {
         GameMessage.performAttack(roomId: state.roomCode, action: action));
   }
 
+  /// Host → Server: seed this room with a previously saved [GameState].
+  void restoreGame(GameState savedState, int hostSlotIndex) {
+    _transport?.sendAction(GameMessage.restoreGame(
+      playerId: state.localPlayerId,
+      roomId: state.roomCode,
+      savedState: savedState,
+      hostSlotIndex: hostSlotIndex,
+    ));
+  }
+
+  /// Client → Server: claim a player slot in a restore room.
+  void claimSlot(int slotIndex) {
+    _transport?.sendAction(GameMessage.claimSlot(
+      playerId: state.localPlayerId,
+      roomId: state.roomCode,
+      slotIndex: slotIndex,
+    ));
+  }
+
   // ── Stream subscriptions ──────────────────────────────────────────────────
 
   /// Subscribe to all [IGameTransport] streams uniformly.

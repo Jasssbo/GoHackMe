@@ -226,6 +226,27 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
         GameMessage.performAttack(roomId: state.roomCode, action: action));
   }
 
+  /// Host → Server: seed this room with a previously saved [GameState].
+  ///
+  /// Must be called right after [openAsHost] while still in the waiting phase.
+  void restoreGame(GameState savedState, int hostSlotIndex) {
+    _transport?.sendAction(GameMessage.restoreGame(
+      playerId: state.localPlayerId,
+      roomId: state.roomCode,
+      savedState: savedState,
+      hostSlotIndex: hostSlotIndex,
+    ));
+  }
+
+  /// Client → Server: claim a player slot in a restore room.
+  void claimSlot(int slotIndex) {
+    _transport?.sendAction(GameMessage.claimSlot(
+      playerId: state.localPlayerId,
+      roomId: state.roomCode,
+      slotIndex: slotIndex,
+    ));
+  }
+
   // ── Subscriptions ─────────────────────────────────────────────────────────
 
   void _subscribeToTransport() {

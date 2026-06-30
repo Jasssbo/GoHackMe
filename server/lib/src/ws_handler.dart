@@ -13,7 +13,9 @@ import 'room_manager.dart';
 /// Shelf handler that upgrades HTTP connections to WebSockets and routes
 /// incoming [GameMessage]s to the appropriate [GameRoom].
 /// Max bytes accepted per message to prevent memory exhaustion.
-const _kMaxMessageBytes = 4096;
+/// Increased to 64 KB to accommodate restoreGame payloads that carry a full
+/// serialised GameState (a 19×19 board with all effects can reach ~15 KB).
+const _kMaxMessageBytes = 65536;
 
 /// Max messages per second per connection before the connection is dropped.
 const _kRateLimitPerSecond = 20;
@@ -296,6 +298,62 @@ Handler buildWsHandler(RoomManager roomManager) {
         }
 
         // Use the server-verified identity rather than trusting the client's playerId field.
+        // ── Restore from save ──────────────────────────────────────────────
+        if (message.type == MessageType.restoreGame) {
+          // Only the room creator may seed a restore.
+          final stateJson = message.payload['state'];
+          final hostSlotIndex = message.payload['hostSlotIndex'] as int?;
+          if (stateJson is! Map<String, dynamic> || hostSlotIndex == null) {
+            channel.sink.add(
+              GameMessage.error(reason: 'INVALID_RESTORE_PAYLOAD').toJsonString(),
+            );
+            return;
+          }
+          GameState savedState;
+          try {
+            savedState = GameState.fromJson(stateJson);
+          } catch (e) {
+            channel.sink.add(
+              GameMessage.error(reason: 'INVALID_RESTORE_STATE').toJsonString(),
+            );
+            return;
+          }
+          final err = room.restoreFromSave(
+            savedState: savedState,
+            hostSlotIndex: hostSlotIndex,
+            hostPlayerId: connectedPlayerId!,
+          );
+          if (err != null) {
+            channel.sink.add(
+              GameMessage.error(reason: err, roomId: connectedRoomId, playerId: connectedPlayerId)
+                  .toJsonString(),
+            );
+          }
+          return;
+        }
+
+        // ── Claim slot (restore rooms only) ────────────────────────────────
+        if (message.type == MessageType.claimSlot) {
+          final slotIndex = message.payload['slotIndex'] as int?;
+          if (slotIndex == null) {
+            channel.sink.add(
+              GameMessage.error(reason: 'MISSING_SLOT_INDEX').toJsonString(),
+            );
+            return;
+          }
+          final err = room.claimSlot(
+            playerId: connectedPlayerId!,
+            slotIndex: slotIndex,
+          );
+          if (err != null) {
+            channel.sink.add(
+              GameMessage.error(reason: err, roomId: connectedRoomId, playerId: connectedPlayerId)
+                  .toJsonString(),
+            );
+          }
+          return;
+        }
+
         // ── Chat ──────────────────────────────────────────────────────────────
         if (message.type == MessageType.chat) {
           // Only allowed while a game is in progress.

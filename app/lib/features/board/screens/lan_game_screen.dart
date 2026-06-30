@@ -11,6 +11,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../providers/lan_game_provider.dart';
 import '../../../services/lan_discovery_service.dart';
 import '../../../services/connected_player.dart';
+import '../../../services/saved_game_service.dart';
 import '../widgets/game_layout.dart';
 
 // ── LanGameScreen ─────────────────────────────────────────────────────────
@@ -79,6 +80,25 @@ class _LanGameScreenState extends ConsumerState<LanGameScreen> {
     }
   }
 
+  Future<void> _saveGame(LanGameState ls) async {
+    final gs = ls.gameState;
+    if (gs == null) return;
+    final playerIdx = gs.players.indexWhere((p) => p.id == ls.localPlayerId);
+    final saverIdx = playerIdx >= 0 ? playerIdx : 0;
+    await SavedGameService.save(
+      state: gs,
+      saverPlayerIndex: saverIdx,
+      label: 'LAN · ${gs.players.length}P · T${gs.turnNumber}',
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('GAME_SAVED  ·  resume from lobby',
+          style: TextStyle(fontFamily: 'monospace')),
+      duration: Duration(seconds: 2),
+      backgroundColor: Color(0xFF0D2B1A),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final lanState = ref.watch(lanGameProvider);
@@ -137,6 +157,7 @@ class _LanGameScreenState extends ConsumerState<LanGameScreen> {
             context.go(Routes.lobby);
           },
           onPass: () => ref.read(lanGameProvider.notifier).pass(),
+          onSave: () => _saveGame(ls),
           onPlace: (pos) {
             setState(() => _lastPlaced = pos);
             ref.read(lanGameProvider.notifier).placeStone(pos);

@@ -29,6 +29,9 @@ class GameLayout extends StatefulWidget {
   /// Called when the player taps the PASS button.
   final VoidCallback? onPass;
 
+  /// Called when the player taps the SAVE button to snapshot the game.
+  final VoidCallback? onSave;
+
   /// Called when the player taps the EXIT button.
   final VoidCallback? onExit;
 
@@ -58,6 +61,7 @@ class GameLayout extends StatefulWidget {
     required this.onPlace,
     required this.onAttack,
     this.onPass,
+    this.onSave,
     this.onExit,
     this.attackBurst,
     this.onChatSend,
@@ -111,30 +115,48 @@ class _GameLayoutState extends State<GameLayout> {
   static const _kTurnSeconds = 15;
   Timer? _turnCountdownTimer;
   int _turnSecondsLeft = _kTurnSeconds;
+  /// Wall-clock reference point for the current turn, used to recompute the
+  /// display value on every tick without accumulating Timer.periodic drift.
+  DateTime? _turnStartedAtLocal;
+
+  /// Recomputes the remaining seconds from the wall clock.
+  /// Uses ceiling division so the display reads "1s" until the last millisecond
+  /// instead of jumping to "0s" a full second early.
+  int _computeTurnSecondsLeft() {
+    final ref = _turnStartedAtLocal;
+    if (ref == null) return _kTurnSeconds;
+    final elapsedMs = DateTime.now().toUtc().difference(ref).inMilliseconds;
+    final remainingMs = _kTurnSeconds * 1000 - elapsedMs;
+    if (remainingMs <= 0) return 0;
+    // Ceiling integer division: (remainingMs + 999) ~/ 1000
+    return ((remainingMs + 999) ~/ 1000).clamp(0, _kTurnSeconds);
+  }
 
   void _resetTurnCountdown() {
     _turnCountdownTimer?.cancel();
-    // If the server supplied a turn start timestamp, compute how many seconds
-    // remain instead of always resetting to the full 15 s.
-    final ts = widget.serverTurnStartedAt;
-    if (ts != null) {
-      final elapsed = DateTime.now().toUtc().difference(ts).inSeconds;
-      _turnSecondsLeft = (_kTurnSeconds - elapsed).clamp(0, _kTurnSeconds);
-    } else {
-      _turnSecondsLeft = _kTurnSeconds;
-    }
-    _turnCountdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+    // Use the server's authoritative start time when available; fall back to
+    // now() for local / LAN games that don't supply a clock-sync timestamp.
+    _turnStartedAtLocal = widget.serverTurnStartedAt ?? DateTime.now().toUtc();
+    // Compute the first value immediately — no blank frame before the timer fires.
+    _turnSecondsLeft = _computeTurnSecondsLeft();
+    // Poll every 500 ms and recompute from the wall clock each tick.
+    // This eliminates Timer.periodic drift AND the 1-second inaccuracy that the
+    // old decrement approach had (inSeconds truncates, so 14.9 s elapsed → 14,
+    // showing 1 s more than reality).
+    _turnCountdownTimer = Timer.periodic(const Duration(milliseconds: 500), (t) {
       if (!mounted) { t.cancel(); return; }
-      setState(() {
-        _turnSecondsLeft--;
-        if (_turnSecondsLeft <= 0) { t.cancel(); _turnSecondsLeft = 0; }
-      });
+      final remaining = _computeTurnSecondsLeft();
+      if (remaining != _turnSecondsLeft) {
+        setState(() => _turnSecondsLeft = remaining);
+      }
+      if (remaining <= 0) t.cancel();
     });
   }
 
   void _cancelTurnCountdown() {
     _turnCountdownTimer?.cancel();
     _turnCountdownTimer = null;
+    _turnStartedAtLocal = null;
     _turnSecondsLeft = _kTurnSeconds;
   }
 
@@ -174,9 +196,12 @@ class _GameLayoutState extends State<GameLayout> {
     } else {
       _cancelTimebomb();
     }
-    // Reset turn countdown whenever the active player changes.
+    // Reset turn countdown whenever the active player changes, the phase
+    // changes, OR the server sends a fresh start timestamp (e.g. after a
+    // reconnect where the same player is still active).
     if (oldWidget.state.currentPlayerId != widget.state.currentPlayerId ||
-        oldWidget.state.phase != widget.state.phase) {
+        oldWidget.state.phase != widget.state.phase ||
+        oldWidget.serverTurnStartedAt != widget.serverTurnStartedAt) {
       _resetTurnCountdown();
     }
     // Haptic feedback on capture events.
@@ -247,6 +272,7 @@ class _GameLayoutState extends State<GameLayout> {
             state: widget.state,
             localPlayerId: widget.localPlayerId,
             onPass: widget.onPass,
+            onSave: widget.onSave,
             onExit: widget.onExit,
             onUndo: widget.onUndo,
             turnSecondsLeft: _turnSecondsLeft,
@@ -512,6 +538,7 @@ class GameStatusStrip extends StatelessWidget {
   final GameState state;
   final String localPlayerId;
   final VoidCallback? onPass;
+  final VoidCallback? onSave;
   final VoidCallback? onExit;
   final VoidCallback? onUndo;
   final int turnSecondsLeft;
@@ -521,6 +548,7 @@ class GameStatusStrip extends StatelessWidget {
     required this.state,
     required this.localPlayerId,
     this.onPass,
+    this.onSave,
     this.onExit,
     this.onUndo,
     this.turnSecondsLeft = 15,
@@ -549,6 +577,14 @@ class GameStatusStrip extends StatelessWidget {
               label: 'PASS',
               color: CyberpunkColors.amber,
               onTap: onPass!,
+            ),
+            const SizedBox(width: 8),
+          ],
+          if (isActive && onSave != null) ...[
+            _StripButton(
+              label: 'SAVE',
+              color: CyberpunkColors.green,
+              onTap: onSave!,
             ),
             const SizedBox(width: 8),
           ],

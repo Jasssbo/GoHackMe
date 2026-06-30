@@ -7,8 +7,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/cyberpunk_colors.dart';
+import '../../../services/saved_game_service.dart';
 import '../../../services/wired_server_service.dart';
 import '../widgets/globe_widget.dart';
+import '../widgets/resume_game_dialog.dart';
+import 'resume_game_screen.dart';
 
 /// Main lobby — four ASCII terminal entries; each one opens a focused
 /// setup dialog before navigating.
@@ -100,6 +103,30 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
         }
       },
     ));
+  }
+
+  void _pickResume() {
+    _showSetupDialog(ResumeGameDialog(
+      onResume: (save) {
+        _showSetupDialog(_ResumeModeDialog(
+          save: save,
+          onChoose: (mode) {
+            Navigator.of(context, rootNavigator: true).pop();
+            _resumeWithSave(save, mode);
+          },
+        ));
+      },
+    ));
+  }
+
+  void _resumeWithSave(SavedGame save, ResumeGameMode mode) {
+    Navigator.of(context, rootNavigator: true).popUntil(
+      (route) => route.settings.name == null || route.isFirst,
+    );
+    context.push(
+      Routes.resumeGame,
+      extra: {'save': save, 'mode': mode},
+    );
   }
 
   void _showSetupDialog(Widget dialog) {
@@ -249,6 +276,14 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                 description: 'global network  ·  connect to the Wired',
                 accent: const Color(0xFF8B5CF6),
                 onTap: _pickWired,
+              ),
+              const SizedBox(height: 10),
+              _TerminalEntry(
+                index: '05',
+                command: 'RESTORE_SESSION',
+                description: 'resume saved game  ·  continue where you left off',
+                accent: CyberpunkColors.cyan,
+                onTap: _pickResume,
               ),
             ],
           ),
@@ -493,6 +528,103 @@ Widget _dialogButton(String label, Color accent, VoidCallback onTap) =>
         ),
       ),
     );
+
+// ── Resume mode picker ────────────────────────────────────────────────────
+
+/// Asks the user whether they want to resume via LAN or THE_WIRED.
+class _ResumeModeDialog extends StatelessWidget {
+  final SavedGame save;
+  final void Function(ResumeGameMode mode) onChoose;
+
+  const _ResumeModeDialog({required this.save, required this.onChoose});
+
+  @override
+  Widget build(BuildContext context) {
+    const accent = CyberpunkColors.cyan;
+    return SafeArea(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF030A11),
+                border: Border.all(color: accent.withValues(alpha: 0.55), width: 1),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Header
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: Color(0xFF0A2030), width: 1),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Text(
+                          '// RESTORE_VIA',
+                          style: TextStyle(
+                            color: accent,
+                            fontSize: 10,
+                            letterSpacing: 2.5,
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () => Navigator.of(context).pop(),
+                          child: const Padding(
+                            padding: EdgeInsets.all(4),
+                            child: Text('[X]', style: TextStyle(color: Colors.white, fontSize: 10, fontFamily: 'monospace')),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          save.label,
+                          style: TextStyle(
+                            color: CyberpunkColors.textSecondary.withValues(alpha: 0.70),
+                            fontSize: 9,
+                            fontFamily: 'monospace',
+                            letterSpacing: 1,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        _dialogButton(
+                          'LOCAL_WIRED  (LAN)',
+                          CyberpunkColors.green,
+                          () => onChoose(ResumeGameMode.lan),
+                        ),
+                        const SizedBox(height: 10),
+                        _dialogButton(
+                          'THE_WIRED  (Internet)',
+                          const Color(0xFF8B5CF6),
+                          () => onChoose(ResumeGameMode.wired),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 // ── Solo setup dialog ─────────────────────────────────────────────────────
 

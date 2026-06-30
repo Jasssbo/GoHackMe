@@ -13,6 +13,7 @@ import '../../../core/widgets/glitch_overlay.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/wired_game_provider.dart';
 import '../../../services/connected_player.dart';
+import '../../../services/saved_game_service.dart';
 import '../../../services/wired_server_service.dart';
 import '../widgets/game_layout.dart';
 
@@ -148,6 +149,7 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
           serverTurnStartedAt: ws.serverTurnStartedAt,
           onExit: () => _leave(context),
           onPass: () => ref.read(wiredGameProvider.notifier).pass(),
+          onSave: () => _saveGame(ws),
           onPlace: (pos) {
             setState(() => _lastPlaced = pos);
             ref.read(wiredGameProvider.notifier).placeStone(pos);
@@ -173,6 +175,25 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
           onBack: () => _leave(context),
         );
     }
+  }
+
+  Future<void> _saveGame(WiredGameState ws) async {
+    final gs = ws.gameState;
+    if (gs == null) return;
+    final playerIdx = gs.players.indexWhere((p) => p.id == ws.localPlayerId);
+    final saverIdx = playerIdx >= 0 ? playerIdx : 0;
+    await SavedGameService.save(
+      state: gs,
+      saverPlayerIndex: saverIdx,
+      label: 'THE_WIRED · ${gs.players.length}P · T${gs.turnNumber}',
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('GAME_SAVED  ·  resume from lobby',
+          style: TextStyle(fontFamily: 'monospace')),
+      duration: Duration(seconds: 2),
+      backgroundColor: Color(0xFF0D1A2B),
+    ));
   }
 
   Future<void> _onClientJoin(String code) async {

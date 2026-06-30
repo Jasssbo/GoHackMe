@@ -9,7 +9,9 @@ import '../../features/board/screens/local_game_screen.dart';
 import '../../features/board/screens/wired_game_screen.dart';
 import '../../features/lobby/screens/lobby_screen.dart';
 import '../../features/lobby/screens/navi_terminal_screen.dart';
+import '../../features/lobby/screens/resume_game_screen.dart';
 import '../../services/lan_discovery_service.dart';
+import '../../services/saved_game_service.dart';
 
 /// Named route constants.
 abstract class Routes {
@@ -23,6 +25,7 @@ abstract class Routes {
   static const wiredHost = '/wired/host';
   static const wiredJoin = '/wired/join';
   static const navi = '/navi';
+  static const resumeGame = '/resume';
 
   static String gamePath(String roomId) => '/game/$roomId';
 }
@@ -120,6 +123,17 @@ final appRouter = GoRouter(
       path: Routes.navi,
       name: 'navi',
       builder: (context, state) => const NaviTerminalScreen(),
+    ),
+    GoRoute(
+      path: Routes.resumeGame,
+      name: 'resumeGame',
+      builder: (context, state) {
+        final extras = state.extra as Map<String, dynamic>;
+        return ResumeGameScreen(
+          save: extras['save'] as SavedGame,
+          mode: extras['mode'] as ResumeGameMode,
+        );
+      },
     ),
   ],
 );

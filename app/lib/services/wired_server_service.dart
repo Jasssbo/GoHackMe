@@ -198,6 +198,16 @@ class WiredServerService implements IGameTransport {
 
     switch (msg.type) {
       case MessageType.gameStateUpdate:
+        // ⚠ Emit the timestamp FIRST so it is already in Riverpod state when
+        // the game-state emission triggers GameLayout.didUpdateWidget →
+        // _resetTurnCountdown().  Emitting second caused a race: the countdown
+        // always read the stale (previous turn's) serverTurnStartedAt and
+        // therefore always seeded at 15 s regardless of actual elapsed time.
+        final tsMs = msg.payload['turnStartedAt'];
+        if (tsMs is int) {
+          _turnTsCtrl.add(
+              DateTime.fromMillisecondsSinceEpoch(tsMs, isUtc: true));
+        }
         final stateJson = msg.payload['state'];
         if (stateJson is Map<String, dynamic>) {
           try {
@@ -205,11 +215,6 @@ class WiredServerService implements IGameTransport {
           } catch (e) {
             _logCtrl.add('STATE_PARSE_ERROR: $e');
           }
-        }
-        final tsMs = msg.payload['turnStartedAt'];
-        if (tsMs is int) {
-          _turnTsCtrl.add(
-              DateTime.fromMillisecondsSinceEpoch(tsMs, isUtc: true));
         }
         final log = msg.payload['log'] as String?;
         if (log != null && log.isNotEmpty) _logCtrl.add(log);

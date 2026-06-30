@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+# Cancel any in-flight run for the same ref so pushes don't queue up.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Pure-Dart engine ──────────────────────────────────────────────────────
+  engine:
+    name: "Engine — analyze & test"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: dart pub get
+        working-directory: packages/go_engine
+
+      - name: Analyze (fatal on infos)
+        run: dart analyze --fatal-infos
+        working-directory: packages/go_engine
+
+      - name: Test
+        run: dart test
+        working-directory: packages/go_engine
+
+  # ── Dart server ───────────────────────────────────────────────────────────
+  server:
+    name: "Server — analyze & test"
+    runs-on: ubuntu-latest
+    needs: engine          # only run if the engine is clean
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      # go_engine is a local path dependency — resolve it first.
+      - name: Install engine dependencies
+        run: dart pub get
+        working-directory: packages/go_engine
+
+      - name: Install server dependencies
+        run: dart pub get
+        working-directory: server
+
+      - name: Analyze (fatal on infos)
+        run: dart analyze --fatal-infos
+        working-directory: server
+
+      - name: Test
+        run: dart test --reporter=expanded
+        working-directory: server
+
+  # ── Flutter app ───────────────────────────────────────────────────────────
+  app:
+    name: "App — analyze & test"
+    runs-on: ubuntu-latest
+    needs: engine          # only run if the engine is clean
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true      # cache Flutter SDK between runs
+
+      - name: Install dependencies
+        run: flutter pub get
+        working-directory: app
+
+      - name: Analyze (fatal on infos)
+        run: flutter analyze --fatal-infos
+        working-directory: app
+
+      - name: Test
+        run: flutter test
+        working-directory: app

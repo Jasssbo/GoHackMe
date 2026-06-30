@@ -1,0 +1,41 @@
+name: Dependency Check
+
+on:
+  workflow_dispatch:       # Trigger manually from the Actions tab when needed
+
+jobs:
+  check:
+    name: "outdated — ${{ matrix.label }}"
+    runs-on: ubuntu-latest
+    # Run all three packages in parallel; don't stop if one reports outdated deps.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: engine
+            dir: packages/go_engine
+            tool: dart
+          - label: server
+            dir: server
+            tool: dart
+          - label: app
+            dir: app
+            tool: flutter
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # flutter-action installs both Flutter and Dart, so it covers all cases.
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: ${{ matrix.tool }} pub get
+        working-directory: ${{ matrix.dir }}
+
+      - name: Check outdated packages
+        # continue-on-error: outdated deps are informational — never block a build.
+        run: ${{ matrix.tool }} pub outdated
+        working-directory: ${{ matrix.dir }}
+        continue-on-error: true

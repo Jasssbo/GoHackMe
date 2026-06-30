@@ -61,6 +61,14 @@ class GameRoom {
   int get playerCount => _players.length;
   List<Player> get players => List.unmodifiable(_players);
 
+  // ── Restore-from-save state ───────────────────────────────────────────────
+
+  /// Non-null when this room was created via [restoreFromSave].
+  GameState? _savedState;
+
+  /// maps new playerId → slot index in the saved state.
+  final Map<String, int> _claimedSlots = {};
+
   // ── Join / leave ──────────────────────────────────────────────────────────
 
   /// Adds [player] to the room and registers their [channel].
@@ -104,7 +112,25 @@ class GameRoom {
     ));
 
     // Auto-start when room is full
-    if (isFull && !isStarted) _startGame();
+    if (isFull && !isStarted) {
+      if (_savedState != null) {
+        // Restore mode: for 2-player games auto-assign the second joiner to
+        // the only remaining unclaimed slot, then start.  For ≥3 players each
+        // joiner must explicitly claim their slot via [claimSlot].
+        if (_savedState!.players.length == 2) {
+          // Find the one slot the host didn't claim.
+          final unclaimedSlot = List.generate(_savedState!.players.length, (i) => i)
+              .firstWhere((i) => !_claimedSlots.containsValue(i), orElse: () => -1);
+          if (unclaimedSlot >= 0) {
+            _claimedSlots[player.id] = unclaimedSlot;
+          }
+          _tryStartRestored();
+        }
+        // ≥3 players: do nothing — wait for explicit claimSlot messages.
+      } else {
+        _startGame();
+      }
+    }
 
     return null;
   }
@@ -306,6 +332,104 @@ class GameRoom {
       }
     });
   }
+
+  // ── Restore-from-save API ─────────────────────────────────────────────────
+
+  /// Seeds this room with [savedState] from a previously saved game.
+  ///
+  /// Must be called by the host (first joiner) before any other player joins.
+  /// [hostSlotIndex] is the 0-based slot the host occupied in the original game.
+  /// Returns an error string on failure, null on success.
+  String? restoreFromSave({
+    required GameState savedState,
+    required int hostSlotIndex,
+    required String hostPlayerId,
+  }) {
+    if (_state != null) return 'GAME_ALREADY_STARTED';
+    if (hostSlotIndex < 0 || hostSlotIndex >= savedState.players.length) {
+      return 'INVALID_HOST_SLOT';
+    }
+    _savedState = savedState;
+    maxPlayers = savedState.players.length;
+    _claimedSlots[hostPlayerId] = hostSlotIndex;
+    _log('room:$id',
+        'restore seeded: host=$hostPlayerId slot=$hostSlotIndex players=${savedState.players.length}');
+    return null;
+  }
+
+  /// Assigns [playerId] to a slot in the saved game.
+  ///
+  /// For 2-player restores the second slot is auto-assigned when the room
+  /// fills; this method is only needed for ≥ 3-player saves.
+  /// Returns an error string on failure, null on success.
+  String? claimSlot({
+    required String playerId,
+    required int slotIndex,
+  }) {
+    final saved = _savedState;
+    if (saved == null) return 'NOT_A_RESTORE_ROOM';
+    if (slotIndex < 0 || slotIndex >= saved.players.length) return 'INVALID_SLOT';
+    if (_claimedSlots.containsValue(slotIndex)) return 'SLOT_ALREADY_CLAIMED';
+    if (_claimedSlots.containsKey(playerId)) return 'ALREADY_CLAIMED_SLOT';
+    _claimedSlots[playerId] = slotIndex;
+    _log('room:$id', 'slot claimed: player=$playerId slot=$slotIndex');
+    _tryStartRestored();
+    return null;
+  }
+
+  /// Starts the restored game if every slot has been claimed.
+  void _tryStartRestored() {
+    final saved = _savedState;
+    if (saved == null) return;
+    if (_claimedSlots.length < saved.players.length) return;
+    _startRestored(saved);
+  }
+
+  /// Builds a remapped [GameState] using the new player IDs and broadcasts it.
+  void _startRestored(GameState saved) {
+    // Build old-id → new-id mapping from the claimed slots.
+    final idRemap = <String, String>{};
+    for (final entry in _claimedSlots.entries) {
+      final newId = entry.key;
+      final slotIdx = entry.value;
+      final oldId = saved.players[slotIdx].id;
+      idRemap[oldId] = newId;
+    }
+
+    String remap(String id) => idRemap[id] ?? id;
+    String? remapNullable(String? id) => id == null ? null : remap(id);
+
+    // Rebuild ordered player list preserving slot order.
+    final newPlayers = List.generate(saved.players.length, (i) {
+      final oldPlayer = saved.players[i];
+      final newId = idRemap[oldPlayer.id] ?? oldPlayer.id;
+      return Player(id: newId, displayName: oldPlayer.displayName);
+    });
+
+    _state = saved.copyWith(
+      players: newPlayers,
+      subnets: {for (final e in saved.subnets.entries) remap(e.key): e.value},
+      captureCount: {for (final e in saved.captureCount.entries) remap(e.key): e.value},
+      patchShields: {for (final e in saved.patchShields.entries) remap(e.key): e.value},
+      backdoorBy: {
+        for (final e in saved.backdoorBy.entries)
+          remap(e.key): remapNullable(e.value)
+      },
+      activeEffects: saved.activeEffects.map((ef) => ActiveEffect(
+        type: ef.type,
+        targetPlayerId: remap(ef.targetPlayerId),
+        turnsRemaining: ef.turnsRemaining,
+        anchorPosition: ef.anchorPosition,
+        hijackedByPlayerId: remapNullable(ef.hijackedByPlayerId),
+      )).toList(),
+    );
+
+    _log('room:$id', 'game RESTORED — ${newPlayers.length} players from save');
+    _broadcastState(logMessage: 'GAME_RESTORED');
+    _resetTurnTimer();
+  }
+
+  // ── Normal game start ─────────────────────────────────────────────────────
 
   void _startGame() {
     _state = GameState.newGame(players: _players, boardSize: boardSize);

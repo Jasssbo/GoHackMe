@@ -41,6 +41,16 @@ enum MessageType {
   /// Host requests the server to start the game before the room fills up
   /// (minimum 2 players required; server validates).
   startGame,
+
+  /// Host → Server: seed a new room with a previously saved [GameState].
+  /// Must be sent right after [joinRoom], before any other players join.
+  /// Payload: `{ 'state': GameState JSON, 'hostSlotIndex': int }`
+  restoreGame,
+
+  /// Client → Server: claim a player slot in a restore room.
+  /// Payload: `{ 'slotIndex': int }`
+  claimSlot,
+
   // ── Bidirectional ─────────────────────────────────────────────────────
   ping,
   pong,
@@ -197,6 +207,40 @@ class GameMessage {
 
   factory GameMessage.ping() => const GameMessage(type: MessageType.ping);
   factory GameMessage.pong() => const GameMessage(type: MessageType.pong);
+
+  /// Host → Server: restore a room from a locally saved [GameState].
+  ///
+  /// [hostSlotIndex] is the 0-based index of the host's player slot in the
+  /// saved state.  The host is automatically assigned that slot; every other
+  /// player must send [claimSlot] after joining.
+  factory GameMessage.restoreGame({
+    required String playerId,
+    required String roomId,
+    required GameState savedState,
+    required int hostSlotIndex,
+  }) =>
+      GameMessage(
+        type: MessageType.restoreGame,
+        playerId: playerId,
+        roomId: roomId,
+        payload: {
+          'state': savedState.toJson(),
+          'hostSlotIndex': hostSlotIndex,
+        },
+      );
+
+  /// Client → Server: claim a specific player slot in a restore room.
+  factory GameMessage.claimSlot({
+    required String playerId,
+    required String roomId,
+    required int slotIndex,
+  }) =>
+      GameMessage(
+        type: MessageType.claimSlot,
+        playerId: playerId,
+        roomId: roomId,
+        payload: {'slotIndex': slotIndex},
+      );
 
   /// Client → Server: send a chat message to the room.
   factory GameMessage.chat({

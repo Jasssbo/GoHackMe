@@ -7,6 +7,7 @@ import '../../../core/theme/ui_scale.dart';
 import '../../../core/widgets/glitch_overlay.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/local_game_provider.dart';
+import '../../../services/saved_game_service.dart';
 import '../widgets/game_layout.dart';
 
 // ── LocalGameScreen ───────────────────────────────────────────────────────
@@ -89,6 +90,7 @@ class _LocalGameScreenState extends ConsumerState<LocalGameScreen> {
                       Navigator.of(context).pop();
                     },
                     onPass: () => notifier.pass(),
+                    onSave: () => _saveGame(context, gameState, notifier.humanId),
                     onPlace: (pos) {
                       // Only accept input when it's the human's placement turn
                       if (gameState.currentPlayerId != notifier.humanId) {
@@ -117,6 +119,24 @@ class _LocalGameScreenState extends ConsumerState<LocalGameScreen> {
               : 'PLAYER_1',
           botCount: widget.botCount,
         );
+  }
+
+  Future<void> _saveGame(
+      BuildContext context, GameState state, String humanId) async {
+    final playerIdx = state.players.indexWhere((p) => p.id == humanId);
+    await SavedGameService.save(
+      state: state,
+      saverPlayerIndex: playerIdx >= 0 ? playerIdx : 0,
+      label: 'SOLO · ${state.board.size}x${state.board.size} · T${state.turnNumber}',
+    );
+    if (!mounted) return;
+    // ignore: use_build_context_synchronously
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('GAME_SAVED  ·  resume from lobby',
+          style: TextStyle(fontFamily: 'monospace')),
+      duration: Duration(seconds: 2),
+      backgroundColor: Color(0xFF0D2B1A),
+    ));
   }
 }
 
