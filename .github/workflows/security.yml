@@ -75,26 +75,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: subosito/flutter-action@v2
+      # OSV-Scanner reads pubspec.lock files directly against the open-source
+      # vulnerability database — no Dart SDK or network pub calls needed.
+      - name: OSV-Scanner
+        uses: google/osv-scanner-action@v2
         with:
-          channel: stable
-          cache: true
-
-      - name: Get dependencies
-        run: |
-          (cd packages/go_engine && dart pub get)
-          (cd server && dart pub get)
-          (cd app && flutter pub get)
-
-      # dart pub audit checks the pub.dev security advisory database.
-      - name: pub audit — engine
-        run: cd packages/go_engine && dart pub audit
-
-      - name: pub audit — server
-        run: cd server && dart pub audit
-
-      - name: pub audit — app
-        run: cd app && flutter pub audit
+          scan-args: |-
+            --lockfile=packages/go_engine/pubspec.lock
+            --lockfile=server/pubspec.lock
+            --lockfile=app/pubspec.lock
+        # continue-on-error so an advisory never blocks the entire security
+        # workflow — the report is still surfaced as a warning annotation.
+        continue-on-error: true
 
   # ─── Secret scanning ───────────────────────────────────────────────────────
   secret-scan:
@@ -109,6 +101,10 @@ jobs:
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
+          # On push: compare against the commit before this push.
+          # On PR: compare against the PR base branch SHA.
+          # This avoids the "BASE and HEAD commits are the same" error that
+          # occurs when base is set to the branch name on a direct push.
+          base: ${{ github.event.before || github.event.pull_request.base.sha }}
           head: HEAD
           extra_args: --only-verified

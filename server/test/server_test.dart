@@ -9,15 +9,19 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 void main() {
   // Use a non-standard port to avoid conflicts with a running dev server.
   const port = '18082';
-  const host = 'http://0.0.0.0:$port';
-  const wsUrl = 'ws://0.0.0.0:$port/ws';
+  // 127.0.0.1 is safer than 0.0.0.0 as a client address across all platforms.
+  const host = 'http://127.0.0.1:$port';
+  const wsUrl = 'ws://127.0.0.1:$port/ws';
   late Process p;
 
   setUp(() async {
     p = await Process.start(
       'dart',
       ['run', 'bin/server.dart'],
-      environment: {'PORT': port},
+      // Inherit the full parent environment so the child dart process has
+      // access to HOME, PATH, PUB_CACHE, etc. (required in CI).
+      // Only PORT is overridden.
+      environment: {...Platform.environment, 'PORT': port},
     );
     // Wait for the server's startup banner, then give it a moment to bind.
     await p.stdout.first;
@@ -141,9 +145,9 @@ void main() {
       addTearDown(ws.sink.close);
       await ws.ready;
 
-      // 5000-char payload exceeds _kMaxMessageBytes (4096).
-      final padding = 'a' * 5000;
-      ws.sink.add('{"type":"pass","payload":{"x":"$padding"}}');
+      // _kMaxMessageBytes on the server is 65536. Send well above that.
+      final padding = 'a' * 70000;
+      ws.sink.add('{"type":"ping","payload":{"x":"$padding"}}');
 
       // Server sends the error then closes — collect until stream ends.
       final msgs = await ws.stream
@@ -163,9 +167,9 @@ void main() {
       addTearDown(ws.sink.close);
       await ws.ready;
 
-      // Send 25 pings in a burst; the 21st in a 1-second window hits the
-      // 20 msg/s hard cap and triggers RATE_LIMITED.
-      for (var i = 0; i < 25; i++) {
+      // _kRateLimitPerSecond is 20; send 40 pings to reliably exceed it even
+      // under CI scheduler jitter.
+      for (var i = 0; i < 40; i++) {
         ws.sink.add(GameMessage.ping().toJsonString());
       }
 

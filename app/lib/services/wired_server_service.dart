@@ -19,7 +19,6 @@ class WiredRoomInfo {
   final int maxPlayers;
   final double? lat;
   final double? lon;
-  final String? city;
   final String? country;
   /// True when the game has already started but a player disconnected within
   /// their 30-second reconnect grace window — shown so they can rejoin.
@@ -32,7 +31,6 @@ class WiredRoomInfo {
     required this.maxPlayers,
     this.lat,
     this.lon,
-    this.city,
     this.country,
     this.reconnecting = false,
   });
@@ -44,7 +42,6 @@ class WiredRoomInfo {
         maxPlayers: j['maxPlayers'] as int,
         lat: (j['lat'] as num?)?.toDouble(),
         lon: (j['lon'] as num?)?.toDouble(),
-        city: j['city'] as String?,
         country: j['country'] as String?,
         reconnecting: j['reconnecting'] as bool? ?? false,
       );

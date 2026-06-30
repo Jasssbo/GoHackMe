@@ -52,11 +52,9 @@ class RoomManager {
             'playerCount': r.playerCount,
             'maxPlayers': r.maxPlayers,
             'reconnecting': r.hasReconnectSlots,
-            // Coordinates are rounded to ~11 km precision (1 decimal place)
-            // to reduce host location privacy exposure in the lobby browser.
-            if (r.hostLat != null) 'lat': (r.hostLat! * 10).round() / 10.0,
-            if (r.hostLon != null) 'lon': (r.hostLon! * 10).round() / 10.0,
-            // city is omitted — too precise for public API (privacy, MUST 4C).
+            // Country centroid — fixed point for the globe pin.
+            if (r.hostLat != null) 'lat': r.hostLat,
+            if (r.hostLon != null) 'lon': r.hostLon,
             if (r.hostCountry != null && r.hostCountry!.isNotEmpty)
               'country': r.hostCountry,
           })

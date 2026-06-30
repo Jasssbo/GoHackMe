@@ -825,7 +825,6 @@ class _WiredSetupDialogState extends State<_WiredSetupDialog> {
             boardSize: r.boardSize,
             playerCount: r.playerCount,
             maxPlayers: r.maxPlayers,
-            city: r.city ?? '',
             country: r.country ?? '',
           ))
       .toList();
@@ -947,9 +946,7 @@ class _SelectedLobbyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final location = [marker.city, marker.country]
-        .where((s) => s.isNotEmpty)
-        .join(', ');
+    final location = marker.country;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),

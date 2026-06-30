@@ -14,7 +14,6 @@ class LobbyMarker {
   final int boardSize;
   final int playerCount;
   final int maxPlayers;
-  final String city;
   final String country;
 
   const LobbyMarker({
@@ -24,7 +23,6 @@ class LobbyMarker {
     required this.boardSize,
     required this.playerCount,
     required this.maxPlayers,
-    this.city = '',
     this.country = '',
   });
 }
