@@ -111,6 +111,42 @@ class LocalGameNotifier extends Notifier<GameState?> {
   // Expose constants so the screen can reference them.
   String get humanId => _humanId;
 
+  // ── Restore from save ─────────────────────────────────────────────────────
+
+  /// Restores a previously saved game state.
+  ///
+  /// [savedState] must have been produced by a local game (the player at
+  /// [humanSlotIndex] is treated as the human; all others become bots).
+  /// Bot IDs and difficulty are re-derived so the engine loop works correctly.
+  void restoreGame({
+    required GameState savedState,
+    required int humanSlotIndex,
+    BotDifficulty difficulty = BotDifficulty.intermediate,
+  }) {
+    _botTurnPending = false;
+    _difficulty = difficulty;
+    _undoHistory.clear();
+    _turnTimer?.cancel();
+
+    // Identify bot slots: every player that is NOT the human.
+    final botSlots = <int>[];
+    for (var i = 0; i < savedState.players.length; i++) {
+      if (i != humanSlotIndex) botSlots.add(i);
+    }
+    _botIds = botSlots.map((i) => savedState.players[i].id).toList();
+
+    state = savedState;
+
+    ref
+        .read(localGameLogProvider.notifier)
+        .append('>> SESSION_RESTORED  T${savedState.turnNumber}');
+    _resetTurnTimer();
+    // If it is a bot's turn right away, kick off bot logic.
+    if (state != null && _isBot(state!.currentPlayerId)) {
+      _scheduleBotTurn();
+    }
+  }
+
   // ── Human actions ─────────────────────────────────────────────────────────
 
   void placeStone(Position pos) {

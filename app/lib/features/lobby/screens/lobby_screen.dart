@@ -603,6 +603,12 @@ class _ResumeModeDialog extends StatelessWidget {
                         ),
                         const SizedBox(height: 14),
                         _dialogButton(
+                          'CLOSED_CIRCUIT  (solo)',
+                          CyberpunkColors.magenta,
+                          () => onChoose(ResumeGameMode.solo),
+                        ),
+                        const SizedBox(height: 10),
+                        _dialogButton(
                           'LOCAL_WIRED  (LAN)',
                           CyberpunkColors.green,
                           () => onChoose(ResumeGameMode.lan),

@@ -10,13 +10,14 @@ import '../../../core/widgets/glitch_overlay.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../board/providers/wired_game_provider.dart';
 import '../../board/providers/lan_game_provider.dart';
+import '../../board/providers/local_game_provider.dart';
 import '../../board/widgets/game_layout.dart';
 import '../../../services/saved_game_service.dart';
 import '../widgets/resume_game_dialog.dart';
 
 // ── ResumeGameMode ────────────────────────────────────────────────────────
 
-enum ResumeGameMode { lan, wired }
+enum ResumeGameMode { solo, lan, wired }
 
 // ── ResumeGameScreen ──────────────────────────────────────────────────────
 
@@ -49,7 +50,7 @@ class _ResumeGameScreenState extends ConsumerState<ResumeGameScreen> {
     _attackGlitch.dispose();
     if (widget.mode == ResumeGameMode.wired) {
       ref.read(wiredGameProvider.notifier).leave();
-    } else {
+    } else if (widget.mode == ResumeGameMode.lan) {
       ref.read(lanGameProvider.notifier).leave();
     }
     super.dispose();
@@ -62,11 +63,21 @@ class _ResumeGameScreenState extends ConsumerState<ResumeGameScreen> {
   }
 
   Future<void> _init() async {
+    final save = widget.save;
+
+    // ── Solo mode: restore directly into LocalGameNotifier ────────────────
+    if (widget.mode == ResumeGameMode.solo) {
+      ref.read(localGameProvider.notifier).restoreGame(
+            savedState: save.state,
+            humanSlotIndex: save.saverPlayerIndex,
+          );
+      return;
+    }
+
     final auth = ref.read(authProvider).valueOrNull;
     final playerId = auth?.playerId ?? const Uuid().v4();
     final rawName = auth?.displayName ?? '';
     final displayName = rawName.isNotEmpty ? rawName.toUpperCase() : 'ANONYMOUS';
-    final save = widget.save;
     final totalPlayers = save.state.players.length;
 
     if (widget.mode == ResumeGameMode.wired) {
@@ -88,7 +99,7 @@ class _ResumeGameScreenState extends ConsumerState<ResumeGameScreen> {
 
   /// Sends the restoreGame message once the transport is ready.
   void _sendRestore() {
-    if (_restoreSent) return;
+    if (_restoreSent || widget.mode == ResumeGameMode.solo) return;
     _restoreSent = true;
     if (widget.mode == ResumeGameMode.wired) {
       ref.read(wiredGameProvider.notifier).restoreGame(
@@ -112,6 +123,7 @@ class _ResumeGameScreenState extends ConsumerState<ResumeGameScreen> {
       label: widget.save.label,
     );
     if (!mounted) return;
+    // ignore: use_build_context_synchronously
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
       content: Text('GAME_SAVED  ·  resume from lobby',
           style: TextStyle(fontFamily: 'monospace')),
@@ -122,11 +134,60 @@ class _ResumeGameScreenState extends ConsumerState<ResumeGameScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.mode == ResumeGameMode.wired) {
+    if (widget.mode == ResumeGameMode.solo) {
+      return _buildSolo(context);
+    } else if (widget.mode == ResumeGameMode.wired) {
       return _buildWired(context);
     } else {
       return _buildLan(context);
     }
+  }
+
+  // ── Solo build ────────────────────────────────────────────────────────────
+
+  Widget _buildSolo(BuildContext context) {
+    final gameState = ref.watch(localGameProvider);
+    final logLines = ref.watch(localGameLogProvider);
+    final notifier = ref.read(localGameProvider.notifier);
+
+    return Scaffold(
+      backgroundColor: CyberpunkColors.background,
+      body: GlitchOverlay(
+        burstSignal: _attackGlitch,
+        child: gameState == null
+            ? const _ResumeBootScreen()
+            : (gameState.phase == GamePhase.finished ||
+                    gameState.phase == GamePhase.scoring)
+                ? _ResumeGameOverPanel(
+                    state: gameState,
+                    onBack: () => context.go(Routes.lobby),
+                  )
+                : GameLayout(
+                    state: gameState,
+                    localPlayerId: notifier.humanId,
+                    statusLabel: 'CLOSED::CIRCUIT',
+                    attackBurst: _attackGlitch,
+                    logLines: logLines,
+                    lastPlaced: _lastPlaced,
+                    onExit: () {
+                      ref.read(localGameLogProvider.notifier).clear();
+                      context.go(Routes.lobby);
+                    },
+                    onPass: () => notifier.pass(),
+                    onSave: () => _saveGame(gameState, notifier.humanId),
+                    onPlace: (pos) {
+                      if (gameState.currentPlayerId != notifier.humanId) return;
+                      setState(() => _lastPlaced = pos);
+                      notifier.placeStone(pos);
+                    },
+                    onAttack: (action) {
+                      _attackGlitch.value++;
+                      notifier.launchAttack(action);
+                    },
+                    onUndo: notifier.canUndo ? () => notifier.undo() : null,
+                  ),
+      ),
+    );
   }
 
   // ── Wired build ───────────────────────────────────────────────────────────

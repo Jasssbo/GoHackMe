@@ -78,7 +78,7 @@ jobs:
       # OSV-Scanner reads pubspec.lock files directly against the open-source
       # vulnerability database — no Dart SDK or network pub calls needed.
       - name: OSV-Scanner
-        uses: google/osv-scanner-action@v2
+        uses: google/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
             --lockfile=packages/go_engine/pubspec.lock
