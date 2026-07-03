@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/cyberpunk_colors.dart';
+import '../../../services/audio_service.dart';
 import '../../../services/saved_game_service.dart';
 import '../../../services/wired_server_service.dart';
 import '../widgets/globe_widget.dart';
@@ -44,6 +45,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
     for (int i = 0; i < _bootLines.length; i++) {
       Future.delayed(Duration(milliseconds: 280 + i * 420), () {
         if (!mounted) return;
+        ref.read(audioServiceProvider).playBootBeep();
         setState(() => _bootStep = i + 1);
         if (i == _bootLines.length - 1) {
           Future.delayed(const Duration(milliseconds: 480), () {
@@ -56,9 +58,13 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
 
   // ── Mode pickers ──────────────────────────────────────────────────────────
 
-  void _openNavi() => context.push(Routes.navi);
+  void _openNavi() {
+    ref.read(audioServiceProvider).playMenuSelect();
+    context.push(Routes.navi);
+  }
 
   void _pickSolo() {
+    ref.read(audioServiceProvider).playMenuSelect();
     _showSetupDialog(_SoloSetupDialog(
       onConfirm: (size, difficulty, botCount) {
         Navigator.of(context, rootNavigator: true).pop();
@@ -74,6 +80,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   }
 
   void _pickLan() {
+    ref.read(audioServiceProvider).playMenuSelect();
     _showSetupDialog(_LanSetupDialog(
       onHost: (size, players) {
         Navigator.of(context, rootNavigator: true).pop();
@@ -88,6 +95,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   }
 
   void _pickWired() {
+    ref.read(audioServiceProvider).playMenuSelect();
     _showSetupDialog(_WiredSetupDialog(
       onHost: (size, players) {
         Navigator.of(context, rootNavigator: true).pop();
@@ -106,6 +114,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   }
 
   void _pickResume() {
+    ref.read(audioServiceProvider).playMenuSelect();
     _showSetupDialog(ResumeGameDialog(
       onResume: (save) {
         _showSetupDialog(_ResumeModeDialog(

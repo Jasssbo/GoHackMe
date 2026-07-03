@@ -4,6 +4,7 @@ import 'package:go_engine/go_engine.dart';
 
 import '../../../core/theme/cyberpunk_colors.dart';
 import '../../../core/widgets/glitch_overlay.dart';
+import '../../../services/audio_service.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/game_provider.dart';
 import '../widgets/game_layout.dart';
@@ -31,6 +32,7 @@ class GameScreen extends ConsumerStatefulWidget {
 class _GameScreenState extends ConsumerState<GameScreen> {
   Position? _lastPlaced;
   final _attackGlitch = ValueNotifier<int>(0);
+  bool _gameStarted = false;
 
   @override
   void dispose() {
@@ -61,6 +63,16 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   Widget build(BuildContext context) {
     final gameAsync = ref.watch(gameStateProvider);
     final logLines = ref.watch(gameLogProvider);
+
+    // Play connect sound once when the game transitions from waiting → active.
+    ref.listen<AsyncValue<GameState?>>(gameStateProvider, (prev, next) {
+      final prevState = prev?.valueOrNull;
+      final nextState = next.valueOrNull;
+      if (!_gameStarted && prevState == null && nextState != null) {
+        _gameStarted = true;
+        ref.read(audioServiceProvider).playConnect();
+      }
+    });
 
     return Scaffold(
       backgroundColor: CyberpunkColors.background,

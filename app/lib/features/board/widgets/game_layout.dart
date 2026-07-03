@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_engine/go_engine.dart';
 
 import '../../../core/theme/cyberpunk_colors.dart';
 import '../../../core/theme/ui_scale.dart';
+import '../../../services/audio_service.dart';
 import 'board_widget.dart';
 
 // ── GameLayout ────────────────────────────────────────────────────────────
@@ -14,7 +16,7 @@ import 'board_widget.dart';
 ///
 /// Used by both [GameScreen] (online) and [LocalGameScreen] (single-player).
 /// Provide [logLines] from whichever provider the caller watches.
-class GameLayout extends StatefulWidget {
+class GameLayout extends ConsumerStatefulWidget {
   final GameState state;
   final String localPlayerId;
 
@@ -70,10 +72,10 @@ class GameLayout extends StatefulWidget {
   });
 
   @override
-  State<GameLayout> createState() => _GameLayoutState();
+  ConsumerState<GameLayout> createState() => _GameLayoutState();
 }
 
-class _GameLayoutState extends State<GameLayout> {
+class _GameLayoutState extends ConsumerState<GameLayout> {
   /// Non-null while the player has selected a position-based attack
   /// (worm/honeypot) and needs to tap the board to complete it.
   AttackAction? _pendingPositionAttack;
@@ -95,6 +97,7 @@ class _GameLayoutState extends State<GameLayout> {
         t.cancel();
         return;
       }
+      ref.read(audioServiceProvider).playTimebombTick();
       setState(() => _timebombSecondsLeft--);
       if (_timebombSecondsLeft <= 0) {
         t.cancel();
@@ -204,16 +207,45 @@ class _GameLayoutState extends State<GameLayout> {
         oldWidget.serverTurnStartedAt != widget.serverTurnStartedAt) {
       _resetTurnCountdown();
     }
-    // Haptic feedback on capture events.
+    // Sound: turn start (only when the turn flips to the local player).
+    if (oldWidget.state.currentPlayerId != widget.state.currentPlayerId &&
+        widget.state.currentPlayerId == widget.localPlayerId) {
+      ref.read(audioServiceProvider).playTurnStart();
+    }
+    // Sound + haptic: capture events.
     final prevCaptures = oldWidget.state.captureCount.values
         .fold(0, (s, v) => s + v);
     final nextCaptures = widget.state.captureCount.values
         .fold(0, (s, v) => s + v);
-    if (nextCaptures > prevCaptures) HapticFeedback.heavyImpact();
+    if (nextCaptures > prevCaptures) {
+      HapticFeedback.heavyImpact();
+      ref.read(audioServiceProvider).playCapture();
+    }
+    // Sound: game finished.
+    if (oldWidget.state.phase != GamePhase.finished &&
+        widget.state.phase == GamePhase.finished) {
+      final myColor =
+          widget.state.currentPlayerColor(widget.localPlayerId);
+      final scores = Scorer.areaScore(widget.state.board);
+      final myScore = scores[myColor] ?? 0;
+      final maxScore =
+          scores.values.isEmpty ? 0 : scores.values.reduce((a, b) => a > b ? a : b);
+      if (myScore >= maxScore) {
+        ref.read(audioServiceProvider).playGameWin();
+      } else {
+        ref.read(audioServiceProvider).playGameOver();
+      }
+    }
   }
 
   void _onPickPosition(AttackAction partial) {
     setState(() => _pendingPositionAttack = partial);
+  }
+
+  /// Plays the attack-type sound then forwards to the parent callback.
+  void _handleAttack(AttackAction action) {
+    ref.read(audioServiceProvider).playAttack(action.type);
+    widget.onAttack(action);
   }
 
   void _onBoardTap(Position pos) {
@@ -233,7 +265,7 @@ class _GameLayoutState extends State<GameLayout> {
         if (owner.id.isEmpty) return;
         setState(() => _pendingPositionAttack = null);
         HapticFeedback.lightImpact();
-        widget.onAttack(AttackAction(
+        _handleAttack(AttackAction(
           type: pending.type,
           attackerPlayerId: pending.attackerPlayerId,
           targetPlayerId: owner.id,
@@ -244,13 +276,14 @@ class _GameLayoutState extends State<GameLayout> {
       // For all other position-based attacks (HONEYPOT), use the stored target.
       setState(() => _pendingPositionAttack = null);
       HapticFeedback.lightImpact();
-      widget.onAttack(AttackAction(
+      _handleAttack(AttackAction(
         type: pending.type,
         attackerPlayerId: pending.attackerPlayerId,
         targetPlayerId: pending.targetPlayerId,
         targetPosition: pos,
       ));
     } else {
+      ref.read(audioServiceProvider).playPlaceNode();
       HapticFeedback.mediumImpact();
       widget.onPlace(pos);
     }
@@ -271,7 +304,12 @@ class _GameLayoutState extends State<GameLayout> {
           GameStatusStrip(
             state: widget.state,
             localPlayerId: widget.localPlayerId,
-            onPass: widget.onPass,
+            onPass: widget.onPass == null
+                ? null
+                : () {
+                    ref.read(audioServiceProvider).playPass();
+                    widget.onPass!();
+                  },
             onSave: widget.onSave,
             onExit: widget.onExit,
             onUndo: widget.onUndo,
@@ -431,7 +469,7 @@ class _GameLayoutState extends State<GameLayout> {
                 subnets: widget.state.subnetsOf(widget.localPlayerId),
                 players: widget.state.players,
                 localPlayerId: widget.localPlayerId,
-                onAttack: widget.onAttack,
+                onAttack: _handleAttack,
                 onPickPosition: _onPickPosition,
               ),
             ),

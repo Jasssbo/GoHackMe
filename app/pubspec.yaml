@@ -31,6 +31,9 @@ dependencies:
   google_fonts: ^8.1.0
   flutter_animate: ^4.5.2
 
+  # Audio
+  audioplayers: ^6.1.0
+
   # Storage / misc
   shared_preferences: ^2.3.4
   path_provider: ^2.1.4
@@ -46,6 +49,7 @@ flutter:
     - assets/shaders/
     - assets/fonts/
     - assets/images/
+    - assets/audio/
 
   # Declaring fonts here causes `google_fonts` to serve them from local assets
   # instead of downloading from Google's CDN (required for privacy compliance
