@@ -56,7 +56,7 @@ flutter run -d linux --dart-define=WIRED_SERVER_URL=https://your-app.onrender.co
 - Android SDK / Android Studio (if targeting Android)
 - Linux desktop deps:
   ```bash
-  sudo apt install clang cmake ninja-build libgtk-3-dev
+  sudo apt install clang cmake ninja-build pkg-config libgtk-3-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
   ```
 
 ### Clone & bootstrap
