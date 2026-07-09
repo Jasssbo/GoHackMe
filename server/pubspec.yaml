@@ -4,6 +4,7 @@ description: >-
   and broadcasts state to all connected players via shelf + WebSockets.
 version: 0.1.0
 publish_to: none
+license: MIT
 
 environment:
   sdk: ^3.5.0

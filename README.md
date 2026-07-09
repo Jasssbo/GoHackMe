@@ -177,5 +177,5 @@ LAN mode runs on a trusted local network. Rooms are protected against UDP beacon
 
 ## License
 
-[GNU GPLv3](LICENSE)
+[MIT](LICENSE)
 

@@ -4,6 +4,7 @@ description: >-
   mobile and desktop. Place stones, gain subnets, launch attacks.
 version: 1.0.0+1
 publish_to: none
+license: MIT
 
 environment:
   sdk: ^3.5.0

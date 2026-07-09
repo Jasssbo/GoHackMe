@@ -5,6 +5,7 @@ description: >-
   and the attack mechanics for GoHackMe.
 version: 0.1.0
 publish_to: none
+license: MIT
 
 environment:
   sdk: ^3.5.0

@@ -48,6 +48,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
 
   // ── Input ─────────────────────────────────────────────────────────────────
   bool _inputReady = false;
+  /// Non-null when the name contains emojis or non-Latin Unicode.
+  String? _warningMsg;
 
   @override
   void initState() {
@@ -320,6 +322,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                           autofocus: true,
                           cursorColor: CyberpunkColors.cyan,
                           cursorWidth: 2,
+                          maxLength: 20,
+                          // Hides the built-in counter; length is still enforced.
+                          buildCounter: (_, {required currentLength, required isFocused, maxLength}) => null,
+                          onChanged: _checkWarning,
                           style: const TextStyle(
                             color: CyberpunkColors.textPrimary,
                             fontSize: 14,
@@ -347,6 +353,19 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                     height: 1,
                     color: CyberpunkColors.cyanDim.withValues(alpha: 0.25),
                   ),
+                  // Non-blocking warning for emojis / non-Latin Unicode.
+                  if (_warningMsg != null) ...[  
+                    const SizedBox(height: 8),
+                    Text(
+                      _warningMsg!,
+                      style: TextStyle(
+                        color: CyberpunkColors.amber.withValues(alpha: 0.80),
+                        fontSize: 9,
+                        letterSpacing: 1.2,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 32),
                   _ConnectButton(label: 'CONNECT', onTap: _enter),
                 ],
@@ -369,9 +388,24 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
     );
   }
 
+  /// Fires on every keystroke; sets [_warningMsg] if [value] contains
+  /// emojis or characters outside the Basic Latin Extended range (U+0000–U+024F).
+  /// The warning is informational only — the user can still connect.
+  void _checkWarning(String value) {
+    // Matches any codepoint beyond Latin Extended-B (U+024F).
+    // Catches all emoji blocks, CJK, Arabic, symbols, etc.
+    final hasNonClassic = RegExp(r'[^\u0000-\u024F]').hasMatch(value);
+    setState(() {
+      _warningMsg = hasNonClassic
+          ? 'WARN: emoji / non-Latin chars detected — may not render correctly'
+          : null;
+    });
+  }
+
   void _enter() {
     final name = _ctrl.text.trim();
     if (name.isEmpty) return;
+    setState(() => _warningMsg = null);
     ref.read(authProvider.notifier).setDisplayName(name);
     context.go(Routes.lobby);
   }

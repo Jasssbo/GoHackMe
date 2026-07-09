@@ -6,10 +6,6 @@
 -keep class io.flutter.** { *; }
 -keep class io.flutter.plugins.** { *; }
 
-# flutter_webrtc – native bindings must not be renamed
--keep class org.webrtc.** { *; }
--dontwarn org.webrtc.**
-
 # json_serializable / json_annotation – keep ToJson/FromJson
 -keepattributes *Annotation*
 -keepclassmembers class ** {
