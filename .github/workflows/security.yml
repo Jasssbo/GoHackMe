@@ -75,18 +75,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # OSV-Scanner reads pubspec.lock files directly against the open-source
-      # vulnerability database — no Dart SDK or network pub calls needed.
+      # OSV-Scanner v2.x changed from a composite action to a reusable workflow,
+      # so `uses: google/osv-scanner-action@v2.x` fails with "runs: required".
+      # We install the binary directly instead — same scan, no action fragility.
+      - name: Install OSV-Scanner
+        run: |
+          curl -fsSL \
+            "https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64" \
+            -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
+
       - name: OSV-Scanner
-        uses: google/osv-scanner-action@v2.3.8
-        with:
-          scan-args: |-
-            --lockfile=packages/go_engine/pubspec.lock
-            --lockfile=server/pubspec.lock
-            --lockfile=app/pubspec.lock
         # continue-on-error so an advisory never blocks the entire security
         # workflow — the report is still surfaced as a warning annotation.
         continue-on-error: true
+        run: |
+          osv-scanner \
+            --lockfile=packages/go_engine/pubspec.lock \
+            --lockfile=server/pubspec.lock \
+            --lockfile=app/pubspec.lock
 
   # ─── Secret scanning ───────────────────────────────────────────────────────
   secret-scan:
