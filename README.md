@@ -62,8 +62,8 @@ flutter run -d linux --dart-define=WIRED_SERVER_URL=https://your-app.onrender.co
 ### Clone & bootstrap
 
 ```bash
-git clone https://github.com/Jasssbo/GoHackMe_Flutter.git
-cd GoHackMe_Flutter
+git clone https://github.com/Jasssbo/GoHackMe.git
+cd GoHackMe  # (rename folder to match repo, or use your local name)
 
 cd app && flutter pub get && cd ..
 cd packages/go_engine && dart pub get && cd ../..
