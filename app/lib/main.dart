@@ -1,3 +1,4 @@
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,7 +8,24 @@ import 'core/theme/ui_scale.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // ── 1-1: Fire startup sound before any UI frame renders ──────────────────
+  _playStartupSound();
   runApp(const ProviderScope(child: GoHackMeApp()));
+}
+
+/// Plays `1-1-startup.mp3` using a standalone [AudioPlayer] that lives
+/// entirely outside the Riverpod tree — so it fires before the first widget
+/// is built and disposes itself automatically on completion.
+void _playStartupSound() {
+  try {
+    final player = AudioPlayer();
+    player
+        .play(AssetSource('audio/boot-sequence/1-1-startup.mp3'))
+        .ignore();
+    player.onPlayerComplete.listen((_) => player.dispose());
+  } catch (_) {
+    // Audio errors must never crash the app.
+  }
 }
 
 class GoHackMeApp extends StatelessWidget {

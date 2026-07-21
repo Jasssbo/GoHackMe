@@ -51,6 +51,8 @@ flutter:
     - assets/fonts/
     - assets/images/
     - assets/audio/
+    - assets/audio/boot-sequence/
+    - assets/audio/boot-sequence/typing-name/
 
   # Declaring fonts here causes `google_fonts` to serve them from local assets
   # instead of downloading from Google's CDN (required for privacy compliance

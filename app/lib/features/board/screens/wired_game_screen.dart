@@ -51,19 +51,24 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
   Position? _lastPlaced;
   final _attackGlitch = ValueNotifier<int>(0);
 
+  /// Cached notifier — safe to call in dispose() without touching [ref].
+  late final WiredGameNotifier _notifier;
+
   @override
   void dispose() {
     _attackGlitch.dispose();
     // Ensure the server room is cleaned up whenever this screen leaves the tree,
     // including Android back-button / system-gesture navigation that bypasses
     // the in-app exit button.  Safe to call even if already left normally.
-    ref.read(wiredGameProvider.notifier).leave();
+    _notifier.leave();
     super.dispose();
   }
 
   @override
   void initState() {
     super.initState();
+    // Cache the notifier before the widget might be disposed.
+    _notifier = ref.read(wiredGameProvider.notifier);
     if (widget.isHost) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _initHost());
     } else if (widget.initialRoomCode != null &&

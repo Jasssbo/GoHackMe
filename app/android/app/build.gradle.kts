@@ -44,7 +44,7 @@ android {
 
     defaultConfig {
         applicationId = "io.github.jasssbo.gohackme"
-        minSdk = 21   // API 21 required: CHANGE_WIFI_MULTICAST_STATE + Play Store 2025 policy
+        minSdk = flutter.minSdkVersion   // API 21 required: CHANGE_WIFI_MULTICAST_STATE + Play Store 2025 policy
         targetSdk = 35 // Android 15 — required for new submissions from Aug 2025
         versionCode = flutter.versionCode
         versionName = flutter.versionName

@@ -24,36 +24,13 @@ class LobbyScreen extends ConsumerStatefulWidget {
 }
 
 class _LobbyScreenState extends ConsumerState<LobbyScreen> {
-  // ── Boot sequence ─────────────────────────────────────────────────────────
-  static const _bootLines = [
-    'NAVI :: SYSTEM BOOT v7.1',
-    'SCANNING LOCAL WIRED...',
-    'ENTITY IDENTIFIED.',
-    'PROTOCOL STACK LOADED.',
-    'READY.',
-  ];
-  int _bootStep = 0;
-  bool _booted = false;
-
   @override
   void initState() {
     super.initState();
-    _runBoot();
-  }
-
-  void _runBoot() {
-    for (int i = 0; i < _bootLines.length; i++) {
-      Future.delayed(Duration(milliseconds: 280 + i * 420), () {
-        if (!mounted) return;
-        ref.read(audioServiceProvider).playBootBeep();
-        setState(() => _bootStep = i + 1);
-        if (i == _bootLines.length - 1) {
-          Future.delayed(const Duration(milliseconds: 480), () {
-            if (mounted) setState(() => _booted = true);
-          });
-        }
-      });
-    }
+    // ── 4: Greetings — 0.3 s delay so it clears the last connect beep cleanly ─
+    Future<void>.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) ref.read(audioServiceProvider).playGreetings();
+    });
   }
 
   // ── Mode pickers ──────────────────────────────────────────────────────────
@@ -157,66 +134,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return _booted ? _buildMain() : _buildBoot();
-  }
-
-  // ── Boot screen ───────────────────────────────────────────────────────────
-
-  Widget _buildBoot() {
-    return Scaffold(
-      backgroundColor: CyberpunkColors.background,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(36, 48, 36, 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'GOHACKME:NET',
-                style: TextStyle(
-                  color: CyberpunkColors.green.withValues(alpha: 0.55),
-                  fontSize: 9,
-                  letterSpacing: 3,
-                  fontFamily: 'monospace',
-                ),
-              ),
-              const SizedBox(height: 4),
-              Container(
-                height: 1,
-                color: CyberpunkColors.cyanDim.withValues(alpha: 0.18),
-              ),
-              const SizedBox(height: 28),
-              ..._bootLines.take(_bootStep).map(
-                    (line) => Padding(
-                      padding: const EdgeInsets.only(bottom: 3),
-                      child: Text(
-                        line,
-                        style: TextStyle(
-                          color: CyberpunkColors.green.withValues(alpha: 0.55),
-                          fontSize: 9.5,
-                          fontFamily: 'monospace',
-                          letterSpacing: 1.3,
-                          height: 1.7,
-                        ),
-                      ),
-                    ),
-                  ),
-              if (_bootStep < _bootLines.length)
-                Text(
-                  '▌',
-                  style: TextStyle(
-                    color: CyberpunkColors.green.withValues(alpha: 0.45),
-                    fontSize: 9.5,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => _buildMain();
 
   // ── Main menu ─────────────────────────────────────────────────────────────
 

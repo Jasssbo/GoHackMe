@@ -88,8 +88,22 @@ chmod +x "$APPDIR/AppRun"
 # ── Step 5: Package into AppImage ────────────────────────────────────────────
 echo "[4/4] Creating AppImage..."
 rm -f "$FINAL"
+
+APPIMAGE_TOOL="appimagetool"
+if ! command -v appimagetool &> /dev/null; then
+  echo "appimagetool not found on PATH. Downloading local version..."
+  LOCAL_TOOL="$OUT_DIR/appimagetool-x86_64.AppImage"
+  if [[ ! -f "$LOCAL_TOOL" ]]; then
+    mkdir -p "$OUT_DIR"
+    wget -q --show-progress -O "$LOCAL_TOOL" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" || \
+      curl -Lo "$LOCAL_TOOL" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+    chmod +x "$LOCAL_TOOL"
+  fi
+  APPIMAGE_TOOL="$LOCAL_TOOL"
+fi
+
 ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 \
-  appimagetool "$APPDIR" "$FINAL"
+  "$APPIMAGE_TOOL" "$APPDIR" "$FINAL"
 
 echo ""
 echo "Done!"
