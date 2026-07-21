@@ -43,3 +43,5 @@ __pycache__/
 
 # ── AI / tooling artefacts (not part of the project) ─────────
 \# Code Citations.md
+critical_items_roadmap.md
+publishing_readiness_analysis.md

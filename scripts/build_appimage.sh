@@ -43,7 +43,7 @@ fi
 # ── Step 2: Build AppDir ──────────────────────────────────────────────────────
 echo "[2/4] Setting up AppDir..."
 rm -rf "$APPDIR"
-mkdir -p "$APPDIR/lib" "$APPDIR/sys_libs" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+mkdir -p "$APPDIR/lib" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
 # Mirror the exact Flutter bundle layout (binary, data/, lib/ at the same level).
 # Flutter's embedder resolves libapp.so as ./lib/libapp.so relative to the binary.
@@ -56,31 +56,16 @@ cp "$ICON_SRC"                               "$APPDIR/gohackme.png"
 cp "$ICON_SRC"                               "$APPDIR/usr/share/icons/hicolor/256x256/apps/gohackme.png"
 cp "$REPO_ROOT/app/linux/gohackme.desktop"   "$APPDIR/gohackme.desktop"
 
-# ── Step 3: Bundle system libs ────────────────────────────────────────────────
-echo "[3/4] Bundling system libraries..."
-
-# Walk ldd output and copy every system .so into sys_libs/,
-# skipping Flutter's own libs (already in lib/) and kernel-provided ones.
-LD_LIBRARY_PATH="$APPDIR/lib" ldd "$APPDIR/gohackme" \
-  | awk '/=>/{print $3}' | grep -v '^$' \
-  | grep -v 'ld-linux\|linux-vdso' \
-  | while read -r lib; do
-      name="$(basename "$lib")"
-      [[ -f "$APPDIR/lib/$name" ]] && continue
-      [[ -f "$APPDIR/sys_libs/$name" ]] && continue
-      cp -L "$lib" "$APPDIR/sys_libs/$name" 2>/dev/null || true
-    done
-
-echo "  Flutter libs : $(ls "$APPDIR/lib" | wc -l)"
-echo "  System libs  : $(ls "$APPDIR/sys_libs" | wc -l)"
+# ── Step 3: Bundle AppDir structure ──────────────────────────────────────────
+echo "[3/4] AppDir structure ready (using Flutter bundle libraries)..."
 
 # ── Step 4: Write AppRun ──────────────────────────────────────────────────────
-# sys_libs first so GTK etc. are visible; then lib/ so Flutter's own .so files
-# are found; the binary itself resolves lib/libapp.so via its own relative path.
+# Flutter bundle contains libapp.so, libflutter_linux_gtk.so, and plugin libraries.
+# System dependencies (GTK3, GLib, GStreamer, etc.) are safely loaded from the host OS.
 cat > "$APPDIR/AppRun" << 'APPRUN_EOF'
 #!/bin/bash
 HERE="${APPDIR:-$(dirname "$(readlink -f "$0")")}"
-export LD_LIBRARY_PATH="${HERE}/sys_libs:${HERE}/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="${HERE}/lib:${LD_LIBRARY_PATH:-}"
 exec "${HERE}/gohackme" "$@"
 APPRUN_EOF
 chmod +x "$APPDIR/AppRun"

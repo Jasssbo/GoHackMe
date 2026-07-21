@@ -75,21 +75,21 @@ class AttackCard {
     ),
     AttackCard(
       type: AttackType.knightseye,
-      subnetCost: 5,
-      terminalName: 'KNIGHTS_EYE.sh',
-      description: 'Deploy trap. If captured, reclaims node and overwrites all 4 adjacent nodes.',
-    ),
-    AttackCard(
-      type: AttackType.mitm,
       subnetCost: 6,
-      terminalName: 'MITM.sh',
-      description: 'Hijack next turn. You place the enemy stone; they skip attacks.',
+      terminalName: 'KNIGHTS_EYE.sh',
+      description: 'Deploy trap. If captured, reclaims node and captures adjacent enemy/empty nodes.',
     ),
     AttackCard(
       type: AttackType.ddos,
       subnetCost: 7,
       terminalName: 'DDOS.sh',
       description: 'Flood target node. Target skips next placement.',
+    ),
+    AttackCard(
+      type: AttackType.mitm,
+      subnetCost: 8,
+      terminalName: 'MITM.sh',
+      description: 'Hijack next turn. You place the enemy stone; they skip attacks.',
     ),
     AttackCard(
       type: AttackType.psyche,
