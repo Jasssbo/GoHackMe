@@ -96,7 +96,8 @@ class _GlobeWidgetState extends State<GlobeWidget>
     final y2 = y0 * math.cos(_pitch) - z1 * math.sin(_pitch);
     final z2 = y0 * math.sin(_pitch) + z1 * math.cos(_pitch);
     if (z2 < -0.05) return null;
-    return Offset(center.dx + r * x1, center.dy - r * y2);
+    // Negate x1 so the globe is viewed from the outside (east → right).
+    return Offset(center.dx - r * x1, center.dy - r * y2);
   }
 
   void _rebuildProjections(Size size) {
@@ -128,9 +129,11 @@ class _GlobeWidgetState extends State<GlobeWidget>
     if (!_gestureWasDrag) return;
     setState(() {
       // Rotation: cumulative delta from gesture start.
+      // Negate dx so dragging right pans the view eastward (globe
+      // spins westward), matching the negated-x screen projection.
       final dx = d.localFocalPoint.dx - _gestureStart!.dx;
       final dy = d.localFocalPoint.dy - _gestureStart!.dy;
-      _yaw   = _yawAtStart + dx * 0.006;
+      _yaw   = _yawAtStart - dx * 0.006;
       _pitch = (_pitchAtStart + dy * 0.006)
           .clamp(-math.pi / 2.05, math.pi / 2.05);
       // Zoom: two-finger pinch.
@@ -230,7 +233,8 @@ class _GlobePainter extends CustomPainter {
     final y2 = y0 * math.cos(pitch) - z1 * math.sin(pitch);
     final z2 = y0 * math.sin(pitch) + z1 * math.cos(pitch);
     if (z2 < -0.05) return null;
-    return Offset(c.dx + r * x1, c.dy - r * y2);
+    // Negate x1 so the globe is viewed from the outside (east → right).
+    return Offset(c.dx - r * x1, c.dy - r * y2);
   }
 
   // ── paint ───────────────────────────────────────────────────────────────
