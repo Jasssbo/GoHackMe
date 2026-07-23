@@ -138,25 +138,32 @@ class _GlitchOverlayState extends State<GlitchOverlay>
 class _ScanlinePainter extends CustomPainter {
   const _ScanlinePainter();
 
+  static final Paint _darkPaint = Paint()
+    ..color = const Color(0x14000000)
+    ..strokeWidth = 1;
+  static final Paint _vignettePaint = Paint();
+  static Shader? _cachedVignetteShader;
+  static Size _cachedVignetteSize = Size.zero;
+
   @override
   void paint(Canvas canvas, Size size) {
     // Dark CRT scanlines
-    final dark = Paint()
-      ..color = const Color(0x14000000)
-      ..strokeWidth = 1;
     for (double y = 0; y < size.height; y += 3) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), dark);
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), _darkPaint);
     }
     // Subtle vignette
-    final vignette = Paint()
-      ..shader = RadialGradient(
+    if (_cachedVignetteShader == null || _cachedVignetteSize != size) {
+      _cachedVignetteSize = size;
+      _cachedVignetteShader = RadialGradient(
         center: Alignment.center,
         radius: 0.85,
         colors: [Colors.transparent, Colors.black.withValues(alpha: 0.45)],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    }
+    _vignettePaint.shader = _cachedVignetteShader;
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height),
-      vignette,
+      _vignettePaint,
     );
   }
 

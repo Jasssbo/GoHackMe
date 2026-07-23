@@ -142,6 +142,18 @@ class BoardPainter extends CustomPainter {
 
   final _rng = math.Random(42);
 
+  // ── Pre-allocated reusable buffers for Optimization 2 ────────────────────
+  final Path _quadPathBuffer = Path();
+  final Path _hexPathBuffer = Path();
+  final Path _squarePathBuffer = Path();
+  final Path _tracePathBuffer = Path();
+  final Path _diamondPathBuffer = Path();
+
+  final Paint _bgPaint = Paint()..color = const Color(0xFF030506);
+  final Paint _vignettePaint = Paint();
+  static Shader? _cachedVignetteShader;
+  static Size _cachedVignetteSize = Size.zero;
+
   Offset _proj(double bx, double by, double y) {
     final wx = bx - _boardCx;
     final wz = by - _boardCx;
@@ -153,12 +165,15 @@ class BoardPainter extends CustomPainter {
     );
   }
 
-  Path _quad(Offset a, Offset b, Offset c, Offset d) => Path()
-    ..moveTo(a.dx, a.dy)
-    ..lineTo(b.dx, b.dy)
-    ..lineTo(c.dx, c.dy)
-    ..lineTo(d.dx, d.dy)
-    ..close();
+  Path _quad(Offset a, Offset b, Offset c, Offset d) {
+    _quadPathBuffer.reset();
+    _quadPathBuffer.moveTo(a.dx, a.dy);
+    _quadPathBuffer.lineTo(b.dx, b.dy);
+    _quadPathBuffer.lineTo(c.dx, c.dy);
+    _quadPathBuffer.lineTo(d.dx, d.dy);
+    _quadPathBuffer.close();
+    return _quadPathBuffer;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -181,22 +196,20 @@ class BoardPainter extends CustomPainter {
   }
 
   void _drawBackground(Canvas canvas, Size size) {
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..color = const Color(0xFF030506),
-    );
-    final vignette = RadialGradient(
-      center: Alignment.center,
-      radius: 0.85,
-      colors: [
-        Colors.transparent,
-        const Color(0xFF010203).withValues(alpha: 0.6),
-      ],
-    ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..shader = vignette,
-    );
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), _bgPaint);
+    if (_cachedVignetteShader == null || _cachedVignetteSize != size) {
+      _cachedVignetteSize = size;
+      _cachedVignetteShader = RadialGradient(
+        center: Alignment.center,
+        radius: 0.85,
+        colors: [
+          Colors.transparent,
+          const Color(0xFF010203).withValues(alpha: 0.6),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    }
+    _vignettePaint.shader = _cachedVignetteShader;
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), _vignettePaint);
   }
 
   static const _thickness = 0.30;
@@ -277,10 +290,9 @@ class BoardPainter extends CustomPainter {
       canvas.drawPath(
         path,
         Paint()
-          ..color = activeColor.withValues(alpha: 0.30 * activePulse)
+          ..color = activeColor.withValues(alpha: 0.18 * activePulse)
           ..style = PaintingStyle.stroke
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8)
-          ..strokeWidth = 6.0,
+          ..strokeWidth = 4.5,
       );
     }
   }
@@ -336,11 +348,14 @@ class BoardPainter extends CustomPainter {
         final aspectSeed = (pos.x * 7 + pos.y * 19) % 100 / 100.0;
         final wMul = 1.50 + aspectSeed * 0.20;
         final hMul = 0.84 + aspectSeed * 0.14;
+        final baseAlpha = isActive ? 0.035 + pVal * 0.035 : 0.020;
+        canvas.drawOval(
+          Rect.fromCenter(center: c, width: radius * wMul * 1.25, height: radius * hMul * 1.25),
+          Paint()..color = color.withValues(alpha: baseAlpha * 0.4),
+        );
         canvas.drawOval(
           Rect.fromCenter(center: c, width: radius * wMul, height: radius * hMul),
-          Paint()
-            ..color = color.withValues(alpha: isActive ? 0.040 + pVal * 0.040 : 0.025)
-            ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s * 0.48),
+          Paint()..color = color.withValues(alpha: baseAlpha),
         );
       }
     }
@@ -397,19 +412,19 @@ class BoardPainter extends CustomPainter {
             (p0.dy + p1.dy) / 2 + pny * bowAmt,
           );
 
-          final path = Path()
+          final path = _tracePathBuffer
+            ..reset()
             ..moveTo(p0.dx, p0.dy)
             ..quadraticBezierTo(ctrl.dx, ctrl.dy, p1.dx, p1.dy);
 
-          // Soft glow halo
+          // Soft glow halo without offscreen blur
           canvas.drawPath(
             path,
             Paint()
-              ..color = color.withValues(alpha: isActive ? 0.14 + pVal * 0.16 : 0.06)
-              ..strokeWidth = _s * (isActive ? 0.22 : 0.14)
+              ..color = color.withValues(alpha: isActive ? 0.08 + pVal * 0.10 : 0.04)
+              ..strokeWidth = _s * (isActive ? 0.26 : 0.16)
               ..style = PaintingStyle.stroke
-              ..strokeCap = StrokeCap.round
-              ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s * 0.14),
+              ..strokeCap = StrokeCap.round,
           );
 
           // Core trace
@@ -517,10 +532,10 @@ class BoardPainter extends CustomPainter {
   void _drawHubNode(Canvas canvas, Offset c, Paint fill, Paint ring) {
     final pulseR = _s * 0.12 * (0.7 + starPulse * 0.3);
     final r      = _s * 0.060;
-    fill.color = CyberpunkColors.green.withValues(alpha: 0.08 + starPulse * 0.10);
-    fill.maskFilter = MaskFilter.blur(BlurStyle.normal, pulseR * 2.2);
-    canvas.drawCircle(c, pulseR * 2.0, fill);
-    fill.maskFilter = null;
+    fill.color = CyberpunkColors.green.withValues(alpha: 0.04 + starPulse * 0.04);
+    canvas.drawCircle(c, pulseR * 2.2, fill);
+    fill.color = CyberpunkColors.green.withValues(alpha: 0.08 + starPulse * 0.08);
+    canvas.drawCircle(c, pulseR * 1.5, fill);
     ring.color = CyberpunkColors.greenDim.withValues(alpha: 0.45 + starPulse * 0.35);
     canvas.drawCircle(c, pulseR * 1.1, ring);
     fill.color = CyberpunkColors.green.withValues(alpha: 0.55 + starPulse * 0.40);
@@ -560,13 +575,17 @@ class BoardPainter extends CustomPainter {
       // Soft glow halo
       canvas.drawCircle(
         c,
-        half * 2.0,
-        Paint()
-          ..color = identity.baseColor.withValues(alpha: 0.14)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, half * 1.8),
+        half * 2.2,
+        Paint()..color = identity.baseColor.withValues(alpha: 0.06),
+      );
+      canvas.drawCircle(
+        c,
+        half * 1.4,
+        Paint()..color = identity.baseColor.withValues(alpha: 0.12),
       );
       // Small diamond
-      final path = Path()
+      final path = _diamondPathBuffer
+        ..reset()
         ..moveTo(c.dx,        c.dy - half)
         ..lineTo(c.dx + half * 0.7, c.dy)
         ..lineTo(c.dx,        c.dy + half)
@@ -633,40 +652,32 @@ class BoardPainter extends CustomPainter {
     final cTop = _proj(bx, by, h);
     final cBot = _proj(bx, by, 0);
 
-    // Coverage shadow
+    // Coverage shadow (2 concentric ovals for soft falloff without blur)
     canvas.drawOval(
-      Rect.fromCenter(center: cBot, width: r * 3.2 * _s, height: r * 1.8 * _s),
-      Paint()
-        ..color = dimColor.withValues(alpha: 0.45)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s * r * 0.6),
+      Rect.fromCenter(center: cBot, width: r * 3.4 * _s, height: r * 1.9 * _s),
+      Paint()..color = dimColor.withValues(alpha: 0.18),
+    );
+    canvas.drawOval(
+      Rect.fromCenter(center: cBot, width: r * 2.8 * _s, height: r * 1.5 * _s),
+      Paint()..color = dimColor.withValues(alpha: 0.35),
     );
 
-    // Signal glow — ONLY active turn player's stones shine and pulse with light
+    // Signal glow — ONLY active turn player's stones shine and pulse with light (soft shade glow)
     if (isActive) {
-      final glowAlpha = 0.15 + activePulse * 0.25;
+      final glowAlpha = 0.12 + activePulse * 0.20;
       canvas.drawOval(
         Rect.fromCenter(
             center: cTop,
-            width: identity.glowRadius * 2.8 * _s,
-            height: identity.glowRadius * 1.6 * _s),
-        Paint()
-          ..color = color.withValues(alpha: glowAlpha)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, identity.glowRadius * _s * 0.6),
+            width: identity.glowRadius * 3.2 * _s,
+            height: identity.glowRadius * 1.8 * _s),
+        Paint()..color = color.withValues(alpha: glowAlpha * 0.4),
       );
-
-      // Active-player outer blink ring
-      final ringAlpha = 0.25 + activePulse * 0.55;
-      final ringRadius = _s * (r * 1.55 + activePulse * r * 0.20);
       canvas.drawOval(
         Rect.fromCenter(
             center: cTop,
-            width: ringRadius * 2.0,
-            height: ringRadius * 1.15),
-        Paint()
-          ..color = color.withValues(alpha: ringAlpha)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.2
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s * 0.06),
+            width: identity.glowRadius * 2.2 * _s,
+            height: identity.glowRadius * 1.3 * _s),
+        Paint()..color = color.withValues(alpha: glowAlpha),
       );
     } else {
       // Non-active player stones get a subtle static non-pulsing background halo
@@ -675,9 +686,7 @@ class BoardPainter extends CustomPainter {
             center: cTop,
             width: identity.glowRadius * 2.0 * _s,
             height: identity.glowRadius * 1.2 * _s),
-        Paint()
-          ..color = color.withValues(alpha: 0.06)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, identity.glowRadius * _s * 0.4),
+        Paint()..color = color.withValues(alpha: 0.05),
       );
     }
 
@@ -780,7 +789,7 @@ class BoardPainter extends CustomPainter {
   }
 
   Path _hexPath(Offset center, double radius) {
-    final path = Path();
+    _hexPathBuffer.reset();
     for (int i = 0; i < 6; i++) {
       final angle = math.pi / 6 + i * math.pi / 3;
       final p = Offset(
@@ -788,13 +797,13 @@ class BoardPainter extends CustomPainter {
         center.dy + radius * math.sin(angle),
       );
       if (i == 0) {
-        path.moveTo(p.dx, p.dy);
+        _hexPathBuffer.moveTo(p.dx, p.dy);
       } else {
-        path.lineTo(p.dx, p.dy);
+        _hexPathBuffer.lineTo(p.dx, p.dy);
       }
     }
-    path.close();
-    return path;
+    _hexPathBuffer.close();
+    return _hexPathBuffer;
   }
 
   void _drawCrossTerminal(Canvas canvas, Offset c, double r, Color color) {
@@ -812,8 +821,9 @@ class BoardPainter extends CustomPainter {
   }
 
   Path _squarePath(Offset center, double half) {
-    return Path()
-      ..addRect(Rect.fromCenter(center: center, width: half * 2, height: half * 1.4));
+    _squarePathBuffer.reset();
+    _squarePathBuffer.addRect(Rect.fromCenter(center: center, width: half * 2, height: half * 1.4));
+    return _squarePathBuffer;
   }
 
   void _drawFlicker(Canvas canvas, Size size) {

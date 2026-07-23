@@ -78,6 +78,16 @@ class _GlobeWidgetState extends State<GlobeWidget>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!TickerMode.valuesOf(context).enabled) {
+      if (_ticker.isAnimating) _ticker.stop();
+    } else {
+      if (!_ticker.isAnimating) _ticker.repeat();
+    }
+  }
+
+  @override
   void dispose() {
     _ticker.dispose();
     super.dispose();
@@ -249,34 +259,35 @@ class _GlobePainter extends CustomPainter {
     _drawLobbies(canvas, c, r);
   }
 
+  static Shader? _cachedSphereShader;
+  static Offset _cachedSphereCenter = Offset.zero;
+  static double _cachedSphereRadius = 0;
+  static final Paint _spherePaint = Paint();
+  static final Paint _haloPaint = Paint()..color = const Color(0xFF00FF88).withValues(alpha: 0.03);
+  static final Paint _edgeRingPaint = Paint()
+    ..color = const Color(0xFF00FF88).withValues(alpha: 0.22)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 0.8;
+
   void _drawSphere(Canvas canvas, Offset c, double r) {
     // Ambient halo
-    canvas.drawCircle(
-        c,
-        r * 1.15,
-        Paint()
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 22)
-          ..color = const Color(0xFF00FF88).withValues(alpha: 0.06));
+    canvas.drawCircle(c, r * 1.15, _haloPaint);
 
     // Sphere fill — dark blue-black with subtle radial highlight
-    canvas.drawCircle(
-        c,
-        r,
-        Paint()
-          ..shader = RadialGradient(
-            center: const Alignment(-0.35, -0.4),
-            radius: 1.0,
-            colors: const [Color(0xFF071828), Color(0xFF020C16)],
-          ).createShader(Rect.fromCircle(center: c, radius: r)));
+    if (_cachedSphereShader == null || _cachedSphereCenter != c || _cachedSphereRadius != r) {
+      _cachedSphereCenter = c;
+      _cachedSphereRadius = r;
+      _cachedSphereShader = RadialGradient(
+        center: const Alignment(-0.35, -0.4),
+        radius: 1.0,
+        colors: const [Color(0xFF071828), Color(0xFF020C16)],
+      ).createShader(Rect.fromCircle(center: c, radius: r));
+    }
+    _spherePaint.shader = _cachedSphereShader;
+    canvas.drawCircle(c, r, _spherePaint);
 
     // Edge ring
-    canvas.drawCircle(
-        c,
-        r,
-        Paint()
-          ..color = const Color(0xFF00FF88).withValues(alpha: 0.22)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.8);
+    canvas.drawCircle(c, r, _edgeRingPaint);
   }
 
   void _drawGrid(Canvas canvas, Offset c, double r) {
@@ -381,10 +392,8 @@ class _GlobePainter extends CustomPainter {
       // Glow
       canvas.drawCircle(
           pt,
-          5.5,
-          Paint()
-            ..color = const Color(0xFF8B5CF6).withValues(alpha: 0.5)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
+          6.0,
+          Paint()..color = const Color(0xFF8B5CF6).withValues(alpha: 0.35));
 
       // Core dot
       canvas.drawCircle(

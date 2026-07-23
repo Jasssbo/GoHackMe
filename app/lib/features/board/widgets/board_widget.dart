@@ -85,13 +85,13 @@ class _BoardWidgetState extends State<BoardWidget>
     _pulseCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
-    )..repeat(reverse: true);
+    );
 
     // Packets travel across the network every ~4 s
     _packetCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 4200),
-    )..repeat();
+    );
 
     // Occasional low-frequency CRT flicker
     _flickerCtrl = AnimationController(
@@ -104,7 +104,31 @@ class _BoardWidgetState extends State<BoardWidget>
     _turnCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
-    )..repeat(reverse: true);
+    );
+
+    _manageTickers();
+  }
+
+  @override
+  void didUpdateWidget(BoardWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.scoringTerritory != widget.scoringTerritory ||
+        oldWidget.activePlayerColor != widget.activePlayerColor) {
+      _manageTickers();
+    }
+  }
+
+  void _manageTickers() {
+    final isFinishedOrScoring = widget.scoringTerritory != null;
+    if (isFinishedOrScoring) {
+      if (_turnCtrl.isAnimating) _turnCtrl.stop();
+      if (_pulseCtrl.isAnimating) _pulseCtrl.stop();
+      if (_packetCtrl.isAnimating) _packetCtrl.stop();
+    } else {
+      if (!_turnCtrl.isAnimating) _turnCtrl.repeat(reverse: true);
+      if (!_pulseCtrl.isAnimating) _pulseCtrl.repeat(reverse: true);
+      if (!_packetCtrl.isAnimating) _packetCtrl.repeat();
+    }
   }
 
   void _scheduleFlicker() {

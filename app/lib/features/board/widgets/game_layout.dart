@@ -301,19 +301,21 @@ class _GameLayoutState extends ConsumerState<GameLayout> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          GameStatusStrip(
-            state: widget.state,
-            localPlayerId: widget.localPlayerId,
-            onPass: widget.onPass == null
-                ? null
-                : () {
-                    ref.read(audioServiceProvider).playPass();
-                    widget.onPass!();
-                  },
-            onSave: widget.onSave,
-            onExit: widget.onExit,
-            onUndo: widget.onUndo,
-            turnSecondsLeft: _turnSecondsLeft,
+          RepaintBoundary(
+            child: GameStatusStrip(
+              state: widget.state,
+              localPlayerId: widget.localPlayerId,
+              onPass: widget.onPass == null
+                  ? null
+                  : () {
+                      ref.read(audioServiceProvider).playPass();
+                      widget.onPass!();
+                    },
+              onSave: widget.onSave,
+              onExit: widget.onExit,
+              onUndo: widget.onUndo,
+              turnSecondsLeft: _turnSecondsLeft,
+            ),
           ),
           Expanded(
             child: isLandscape
@@ -452,25 +454,27 @@ class _GameLayoutState extends ConsumerState<GameLayout> {
         aspectRatio: 1,
         child: Padding(
           padding: const EdgeInsets.all(6),
-          child: _GlowingBoardBorder(
-            isMyTurn: isMyTurn,
-            turnColor: turnColor,
-            child: BoardWidget(
-              board: widget.state.board,
-              boardSize: widget.state.board.size,
-              lastPlaced: widget.lastPlaced,
-              activePlayerColor: widget.state.currentPlayerColor(
-                  widget.state.currentPlayerId),
-              scoringTerritory: (widget.state.phase == GamePhase.scoring ||
-                      widget.state.phase == GamePhase.finished)
-                  ? Scorer.territoryRegions(widget.state.board)
-                  : null,
-              onTap: isMyTurn &&
-                      (widget.state.phase == GamePhase.attack ||
-                          widget.state.phase ==
-                              GamePhase.hijackedVictimPlacement)
-                  ? _onBoardTap
-                  : null,
+          child: RepaintBoundary(
+            child: _GlowingBoardBorder(
+              isMyTurn: isMyTurn,
+              turnColor: turnColor,
+              child: BoardWidget(
+                board: widget.state.board,
+                boardSize: widget.state.board.size,
+                lastPlaced: widget.lastPlaced,
+                activePlayerColor: widget.state.currentPlayerColor(
+                    widget.state.currentPlayerId),
+                scoringTerritory: (widget.state.phase == GamePhase.scoring ||
+                        widget.state.phase == GamePhase.finished)
+                    ? Scorer.territoryRegions(widget.state.board)
+                    : null,
+                onTap: isMyTurn &&
+                        (widget.state.phase == GamePhase.attack ||
+                            widget.state.phase ==
+                                GamePhase.hijackedVictimPlacement)
+                    ? _onBoardTap
+                    : null,
+              ),
             ),
           ),
         ),
@@ -533,13 +537,19 @@ class _GameLayoutState extends ConsumerState<GameLayout> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(child: _buildAttackPanel(inAttack, isPicking)),
+              Expanded(
+                child: RepaintBoundary(
+                  child: _buildAttackPanel(inAttack, isPicking),
+                ),
+              ),
               Container(width: 1, color: const Color(0xFF0C1814)),
-              GameSidePanel(
-                state: widget.state,
-                localPlayerId: widget.localPlayerId,
-                logLines: widget.logLines,
-                onChatSend: widget.onChatSend,
+              RepaintBoundary(
+                child: GameSidePanel(
+                  state: widget.state,
+                  localPlayerId: widget.localPlayerId,
+                  logLines: widget.logLines,
+                  onChatSend: widget.onChatSend,
+                ),
               ),
             ],
           ),
@@ -570,17 +580,21 @@ class _GameLayoutState extends ConsumerState<GameLayout> {
             children: [
               Expanded(
                 flex: 3,
-                child: _buildAttackPanel(inAttack, isPicking),
+                child: RepaintBoundary(
+                  child: _buildAttackPanel(inAttack, isPicking),
+                ),
               ),
               const PanelDivider(),
               Expanded(
                 flex: 2,
-                child: GameSidePanel(
-                  state: widget.state,
-                  localPlayerId: widget.localPlayerId,
-                  logLines: widget.logLines,
-                  onChatSend: widget.onChatSend,
-                  fillWidth: true,
+                child: RepaintBoundary(
+                  child: GameSidePanel(
+                    state: widget.state,
+                    localPlayerId: widget.localPlayerId,
+                    logLines: widget.logLines,
+                    onChatSend: widget.onChatSend,
+                    fillWidth: true,
+                  ),
                 ),
               ),
             ],

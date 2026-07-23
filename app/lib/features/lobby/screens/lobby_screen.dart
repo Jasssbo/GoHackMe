@@ -775,9 +775,11 @@ class _WiredSetupDialogState extends State<_WiredSetupDialog> {
             height: 260,
             child: Stack(
               children: [
-                GlobeWidget(
-                  lobbies: _markers,
-                  onMarkerTap: (m) => setState(() => _selected = m),
+                RepaintBoundary(
+                  child: GlobeWidget(
+                    lobbies: _markers,
+                    onMarkerTap: (m) => setState(() => _selected = m),
+                  ),
                 ),
                 // "no geo lobbies" hint overlay
                 if (_rooms.isNotEmpty && _markers.isEmpty)
