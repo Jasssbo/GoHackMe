@@ -430,27 +430,48 @@ class _GameLayoutState extends ConsumerState<GameLayout> {
   }
 
   Widget _buildBoardWidget(bool isMyTurn) {
+    final myColorEnum = widget.state.currentPlayerColor(widget.localPlayerId);
+    Color turnColor;
+    switch (myColorEnum) {
+      case StoneColor.p1:
+        turnColor = CyberpunkColors.cyan;
+        break;
+      case StoneColor.p2:
+        turnColor = CyberpunkColors.magenta;
+        break;
+      case StoneColor.p3:
+        turnColor = CyberpunkColors.green;
+        break;
+      case StoneColor.p4:
+        turnColor = CyberpunkColors.amber;
+        break;
+    }
+
     return Center(
       child: AspectRatio(
         aspectRatio: 1,
         child: Padding(
           padding: const EdgeInsets.all(6),
-          child: BoardWidget(
-            board: widget.state.board,
-            boardSize: widget.state.board.size,
-            lastPlaced: widget.lastPlaced,
-            activePlayerColor: widget.state.currentPlayerColor(
-                widget.state.currentPlayerId),
-            scoringTerritory: (widget.state.phase == GamePhase.scoring ||
-                    widget.state.phase == GamePhase.finished)
-                ? Scorer.territoryRegions(widget.state.board)
-                : null,
-            onTap: isMyTurn &&
-                    (widget.state.phase == GamePhase.attack ||
-                        widget.state.phase ==
-                            GamePhase.hijackedVictimPlacement)
-                ? _onBoardTap
-                : null,
+          child: _GlowingBoardBorder(
+            isMyTurn: isMyTurn,
+            turnColor: turnColor,
+            child: BoardWidget(
+              board: widget.state.board,
+              boardSize: widget.state.board.size,
+              lastPlaced: widget.lastPlaced,
+              activePlayerColor: widget.state.currentPlayerColor(
+                  widget.state.currentPlayerId),
+              scoringTerritory: (widget.state.phase == GamePhase.scoring ||
+                      widget.state.phase == GamePhase.finished)
+                  ? Scorer.territoryRegions(widget.state.board)
+                  : null,
+              onTap: isMyTurn &&
+                      (widget.state.phase == GamePhase.attack ||
+                          widget.state.phase ==
+                              GamePhase.hijackedVictimPlacement)
+                  ? _onBoardTap
+                  : null,
+            ),
           ),
         ),
       ),
@@ -1603,6 +1624,151 @@ class _ChatInputState extends State<_ChatInput> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── _GlowingBoardBorder ───────────────────────────────────────────────────
+
+/// Animated border around the board widget that pulses with neon glow
+/// when [isMyTurn] is true.
+class _GlowingBoardBorder extends StatefulWidget {
+  final bool isMyTurn;
+  final Color turnColor;
+  final Widget child;
+
+  const _GlowingBoardBorder({
+    required this.isMyTurn,
+    required this.turnColor,
+    required this.child,
+  });
+
+  @override
+  State<_GlowingBoardBorder> createState() => _GlowingBoardBorderState();
+}
+
+class _GlowingBoardBorderState extends State<_GlowingBoardBorder>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+    if (widget.isMyTurn) {
+      _pulseCtrl.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _GlowingBoardBorder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isMyTurn != oldWidget.isMyTurn) {
+      if (widget.isMyTurn) {
+        _pulseCtrl.repeat(reverse: true);
+      } else {
+        _pulseCtrl.stop();
+        _pulseCtrl.value = 0.0;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulseCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pulseCtrl,
+      builder: (context, child) {
+        final pulse = _pulseCtrl.value;
+        final color = widget.turnColor;
+
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color: widget.isMyTurn
+                  ? color.withValues(alpha: 0.4 + 0.5 * pulse)
+                  : const Color(0xFF0D1A18),
+              width: widget.isMyTurn ? 2.0 : 1.0,
+            ),
+            boxShadow: widget.isMyTurn
+                ? [
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.35 + 0.35 * pulse),
+                      blurRadius: 16 + 8 * pulse,
+                      spreadRadius: 2 + 2 * pulse,
+                    ),
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.2 * pulse),
+                      blurRadius: 32,
+                      spreadRadius: 4,
+                    ),
+                  ]
+                : [],
+          ),
+          child: Stack(
+            children: [
+              widget.child,
+              if (widget.isMyTurn)
+                Positioned(
+                  top: 6,
+                  left: 8,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF030506).withValues(alpha: 0.85),
+                      border: Border.all(
+                        color: color.withValues(alpha: 0.6 + 0.4 * pulse),
+                        width: 1,
+                      ),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 5,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: color.withValues(alpha: 0.5 + 0.5 * pulse),
+                            boxShadow: [
+                              BoxShadow(
+                                color: color,
+                                blurRadius: 4,
+                              )
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          'YOUR TURN',
+                          style: TextStyle(
+                            color: color.withValues(alpha: 0.85 + 0.15 * pulse),
+                            fontSize: 8.5,
+                            letterSpacing: 1.5,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

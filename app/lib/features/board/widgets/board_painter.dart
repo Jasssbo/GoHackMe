@@ -258,6 +258,31 @@ class BoardPainter extends CustomPainter {
       }
     }
     canvas.restore();
+
+    final activeColor = activePlayerColor != null
+        ? _signalIdentities[activePlayerColor]!.baseColor
+        : null;
+    final strokeColor = activeColor != null
+        ? activeColor.withValues(alpha: 0.35 + 0.55 * activePulse)
+        : const Color(0xFF0E221C);
+    final strokeWidth = activeColor != null ? 2.5 : 1.0;
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = strokeColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth,
+    );
+    if (activeColor != null) {
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = activeColor.withValues(alpha: 0.30 * activePulse)
+          ..style = PaintingStyle.stroke
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8)
+          ..strokeWidth = 6.0,
+      );
+    }
   }
 
   void _drawSideFace(
@@ -299,12 +324,14 @@ class BoardPainter extends CustomPainter {
       final identity = _signalIdentities[entry.key];
       if (identity == null) continue;
       final color = identity.baseColor;
+      final isActive = entry.key == activePlayerColor;
+      final pVal = isActive ? activePulse : 0.0;
       for (final pos in entry.value) {
         final c = _proj(pos.x.toDouble(), pos.y.toDouble(), 0.005);
         // Organic radius: deterministic seed from position so halos are uneven
         final seed = (pos.x * 13 + pos.y * 7) % 100 / 100.0;
         final baseR = 0.78 + seed * 0.22;
-        final radius = _s * (baseR + starPulse * 0.14);
+        final radius = _s * (baseR + pVal * 0.16);
         // Slightly non-uniform aspect ratio per stone for blob feel
         final aspectSeed = (pos.x * 7 + pos.y * 19) % 100 / 100.0;
         final wMul = 1.50 + aspectSeed * 0.20;
@@ -312,7 +339,7 @@ class BoardPainter extends CustomPainter {
         canvas.drawOval(
           Rect.fromCenter(center: c, width: radius * wMul, height: radius * hMul),
           Paint()
-            ..color = color.withValues(alpha: 0.040 + starPulse * 0.020)
+            ..color = color.withValues(alpha: isActive ? 0.040 + pVal * 0.040 : 0.025)
             ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s * 0.48),
         );
       }
@@ -338,6 +365,8 @@ class BoardPainter extends CustomPainter {
       if (identity == null) continue;
       final color = identity.baseColor;
       final posSet = entry.value;
+      final isActive = entry.key == activePlayerColor;
+      final pVal = isActive ? activePulse : 0.0;
 
       for (final pos in posSet) {
         // Only check right (+x) and down (+y) to avoid drawing each edge twice
@@ -376,8 +405,8 @@ class BoardPainter extends CustomPainter {
           canvas.drawPath(
             path,
             Paint()
-              ..color = color.withValues(alpha: 0.18 + starPulse * 0.10)
-              ..strokeWidth = _s * 0.22
+              ..color = color.withValues(alpha: isActive ? 0.14 + pVal * 0.16 : 0.06)
+              ..strokeWidth = _s * (isActive ? 0.22 : 0.14)
               ..style = PaintingStyle.stroke
               ..strokeCap = StrokeCap.round
               ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s * 0.14),
@@ -387,8 +416,8 @@ class BoardPainter extends CustomPainter {
           canvas.drawPath(
             path,
             Paint()
-              ..color = color.withValues(alpha: 0.65 + starPulse * 0.20)
-              ..strokeWidth = 1.4
+              ..color = color.withValues(alpha: isActive ? 0.65 + pVal * 0.25 : 0.35)
+              ..strokeWidth = isActive ? 1.4 : 0.9
               ..style = PaintingStyle.stroke
               ..strokeCap = StrokeCap.round,
           );
@@ -397,7 +426,7 @@ class BoardPainter extends CustomPainter {
           canvas.drawPath(
             path,
             Paint()
-              ..color = color.withValues(alpha: 0.85 + starPulse * 0.12)
+              ..color = color.withValues(alpha: isActive ? 0.85 + pVal * 0.15 : 0.45)
               ..strokeWidth = 0.5
               ..style = PaintingStyle.stroke
               ..strokeCap = StrokeCap.round,
@@ -612,22 +641,22 @@ class BoardPainter extends CustomPainter {
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s * r * 0.6),
     );
 
-    // Signal glow — slightly stronger on the active player's stones
-    final glowBoost = isActive ? 0.08 + activePulse * 0.12 : 0.0;
-    canvas.drawOval(
-      Rect.fromCenter(
-          center: cTop,
-          width: identity.glowRadius * 2.4 * _s,
-          height: identity.glowRadius * 1.4 * _s),
-      Paint()
-        ..color = color.withValues(alpha: 0.12 + starPulse * 0.10 + glowBoost)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, identity.glowRadius * _s * 0.5),
-    );
-
-    // Active-player outer blink ring
+    // Signal glow — ONLY active turn player's stones shine and pulse with light
     if (isActive) {
-      final ringAlpha = 0.20 + activePulse * 0.45;
-      final ringRadius = _s * (r * 1.55 + activePulse * r * 0.18);
+      final glowAlpha = 0.15 + activePulse * 0.25;
+      canvas.drawOval(
+        Rect.fromCenter(
+            center: cTop,
+            width: identity.glowRadius * 2.8 * _s,
+            height: identity.glowRadius * 1.6 * _s),
+        Paint()
+          ..color = color.withValues(alpha: glowAlpha)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, identity.glowRadius * _s * 0.6),
+      );
+
+      // Active-player outer blink ring
+      final ringAlpha = 0.25 + activePulse * 0.55;
+      final ringRadius = _s * (r * 1.55 + activePulse * r * 0.20);
       canvas.drawOval(
         Rect.fromCenter(
             center: cTop,
@@ -636,8 +665,19 @@ class BoardPainter extends CustomPainter {
         Paint()
           ..color = color.withValues(alpha: ringAlpha)
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.0
+          ..strokeWidth = 1.2
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s * 0.06),
+      );
+    } else {
+      // Non-active player stones get a subtle static non-pulsing background halo
+      canvas.drawOval(
+        Rect.fromCenter(
+            center: cTop,
+            width: identity.glowRadius * 2.0 * _s,
+            height: identity.glowRadius * 1.2 * _s),
+        Paint()
+          ..color = color.withValues(alpha: 0.06)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, identity.glowRadius * _s * 0.4),
       );
     }
 
@@ -654,10 +694,10 @@ class BoardPainter extends CustomPainter {
         (fbx - _boardCx) * _sinAz + (fby - _boardCx) * _cosAz;
 
     final faceDefs = [
-      (rz: fRz(bx - r / 2, by - r / 2), a: nH, b: wH, c: wS, d: nS, al: 0.32),
-      (rz: fRz(bx + r / 2, by - r / 2), a: eH, b: nH, c: nS, d: eS, al: 0.26),
-      (rz: fRz(bx - r / 2, by + r / 2), a: wH, b: sH, c: sS, d: wS, al: 0.26),
-      (rz: fRz(bx + r / 2, by + r / 2), a: sH, b: eH, c: eS, d: sS, al: 0.38),
+      (rz: fRz(bx - r / 2, by - r / 2), a: nH, b: wH, c: wS, d: nS, al: isActive ? 0.32 : 0.20),
+      (rz: fRz(bx + r / 2, by - r / 2), a: eH, b: nH, c: nS, d: eS, al: isActive ? 0.26 : 0.16),
+      (rz: fRz(bx - r / 2, by + r / 2), a: wH, b: sH, c: sS, d: wS, al: isActive ? 0.26 : 0.16),
+      (rz: fRz(bx + r / 2, by + r / 2), a: sH, b: eH, c: eS, d: sS, al: isActive ? 0.38 : 0.22),
     ]..sort((a, b) => a.rz.compareTo(b.rz));
 
     for (final f in faceDefs) {
@@ -670,12 +710,15 @@ class BoardPainter extends CustomPainter {
     }
 
     _drawNodeTopFace(canvas, sc, identity, bx, by, h, r, color, cTop, isLast,
-        nH, eH, sH, wH);
+        nH, eH, sH, wH, isActive);
 
+    // Center node dot — active stone pulses brightly; non-active stone is static and dim
+    final coreR = _s * 0.10 * (isActive ? (0.8 + activePulse * 0.3) : 0.7);
+    final coreAlpha = isActive ? (0.80 + activePulse * 0.20) : 0.45;
     canvas.drawCircle(
         cTop,
-        _s * 0.10 * (0.8 + starPulse * 0.2),
-        Paint()..color = color.withValues(alpha: 0.80 + starPulse * 0.15));
+        coreR,
+        Paint()..color = color.withValues(alpha: coreAlpha));
   }
 
   void _drawNodeTopFace(
@@ -687,37 +730,39 @@ class BoardPainter extends CustomPainter {
     Offset cTop,
     bool isLast,
     Offset nH, Offset eH, Offset sH, Offset wH,
+    bool isActive,
   ) {
     final topPath = _quad(nH, eH, sH, wH);
     canvas.drawPath(topPath,
         Paint()..color = CyberpunkColors.boardBackground..style = PaintingStyle.fill);
 
+    final strokeAlpha = isActive ? 0.90 : 0.45;
     switch (identity.nodeShape) {
       case 0: // Diamond — P1
         canvas.drawPath(topPath,
             Paint()
-              ..color = color.withValues(alpha: 0.90)
+              ..color = color.withValues(alpha: strokeAlpha)
               ..style = PaintingStyle.stroke
-              ..strokeWidth = 1.0);
+              ..strokeWidth = isActive ? 1.0 : 0.7);
         break;
       case 1: // Hexagonal — P2
         final hex = _hexPath(cTop, _s * r * 0.82);
         canvas.drawPath(hex,
             Paint()
-              ..color = color.withValues(alpha: 0.85)
+              ..color = color.withValues(alpha: strokeAlpha)
               ..style = PaintingStyle.stroke
-              ..strokeWidth = 0.9);
+              ..strokeWidth = isActive ? 0.9 : 0.6);
         break;
       case 2: // Cross terminal — P3
-        _drawCrossTerminal(canvas, cTop, _s * r * 0.75, color);
+        _drawCrossTerminal(canvas, cTop, _s * r * 0.75, color.withValues(alpha: strokeAlpha));
         break;
       case 3: // Square — P4
         final sq = _squarePath(cTop, _s * r * 0.70);
         canvas.drawPath(sq,
             Paint()
-              ..color = color.withValues(alpha: 0.85)
+              ..color = color.withValues(alpha: strokeAlpha)
               ..style = PaintingStyle.stroke
-              ..strokeWidth = 0.9);
+              ..strokeWidth = isActive ? 0.9 : 0.6);
         break;
     }
 

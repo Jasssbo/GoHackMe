@@ -15,45 +15,39 @@ import 'package:go_engine/go_engine.dart';
 /// playback globally.
 class AudioService {
   AudioService() {
-    for (final key in _kKeys) {
-      _players[key] = AudioPlayer();
+    for (int i = 0; i < _kMaxPolyphony; i++) {
+      _polyphonicPool.add(AudioPlayer());
     }
   }
 
-  final Map<String, AudioPlayer> _players = {};
+  static const int _kMaxPolyphony = 4;
+  final List<AudioPlayer> _polyphonicPool = [];
+  int _nextPoolIndex = 0;
+
   bool _muted = false;
 
   bool get muted => _muted;
   void toggleMute() => _muted = !_muted;
 
-  // One player slot per sound key so that rapid triggers don't stack.
-  static const List<String> _kKeys = [
-    'place_node',
-    'capture',
-    'turn_start',
-    'pass_turn',
-    'game_win',
-    'game_over',
-    'timebomb_tick',
-    'menu_select',
-    'connect',
-    'atk_ddos',
-    'atk_trojan',
-    'atk_mitm',
-    'atk_backdoor',
-    'atk_patch',
-    'atk_worm',
-    'atk_knightseye',
-    'atk_psyche',
-  ];
-
   Future<void> _play(String key) async {
     if (_muted) return;
-    final player = _players[key];
-    if (player == null) return;
     try {
-      // Stop any previous play of this slot so rapid triggers feel responsive.
-      await player.stop();
+      // Find an idle player slot in the pool (player not currently playing)
+      AudioPlayer? player;
+      for (final p in _polyphonicPool) {
+        if (p.state != PlayerState.playing) {
+          player = p;
+          break;
+        }
+      }
+
+      // If all 4 slots are busy, steal the oldest slot (round-robin)
+      if (player == null) {
+        player = _polyphonicPool[_nextPoolIndex];
+        _nextPoolIndex = (_nextPoolIndex + 1) % _kMaxPolyphony;
+        await player.stop();
+      }
+
       await player.play(AssetSource('audio/$key.wav'));
     } catch (_) {
       // Audio errors must never crash the game.
@@ -320,7 +314,7 @@ class AudioService {
   }
 
   void dispose() {
-    for (final p in _players.values) {
+    for (final p in _polyphonicPool) {
       p.dispose();
     }
     for (final p in _typingPool) {
