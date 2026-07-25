@@ -1050,36 +1050,153 @@ class _GameOverPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scores = state.players.map((p) {
-      final count = state.captureCount[p.id] ?? 0;
-      return '${p.displayName}: $count captures';
-    }).toList();
+    final areaScores = Scorer.areaScore(state.board);
+
+    final playerScores = [
+      for (int i = 0; i < state.players.length; i++)
+        (
+          player: state.players[i],
+          score: (areaScores[StoneColor.fromIndex(i)] ?? 0) +
+              (state.captureCount[state.players[i].id] ?? 0),
+        ),
+    ];
+    playerScores.sort((a, b) => b.score.compareTo(a.score));
+    final winner = playerScores.isNotEmpty ? playerScores.first : null;
 
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('GAME_OVER',
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF050D15),
+            border: Border.all(color: _kIndigo, width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: _kIndigo.withValues(alpha: 0.2),
+                blurRadius: 16,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '╔══ GAME_OVER.log ══╗',
                 style: TextStyle(
-                    color: _kIndigo,
-                    fontSize: 20,
-                    letterSpacing: 4,
+                  color: _kIndigo,
+                  fontSize: 15,
+                  letterSpacing: 2,
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (winner != null) ...[
+                Text(
+                  '>> WINNER: ${winner.player.displayName}',
+                  style: const TextStyle(
+                    color: CyberpunkColors.green,
+                    fontSize: 13,
+                    letterSpacing: 1.5,
                     fontFamily: 'monospace',
-                    fontWeight: FontWeight.w700)),
-            const SizedBox(height: 16),
-            ...scores.map((s) => Text(s,
-                style: const TextStyle(
-                    color: CyberpunkColors.textPrimary,
-                    fontSize: 11,
-                    fontFamily: 'monospace'))),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: onBack,
-              child: const Text('< BACK_TO_LOBBY'),
-            ),
-          ],
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...playerScores.map(
+                  (ps) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      children: [
+                        Text(
+                          '   ${ps.player.displayName.padRight(14)}',
+                          style: TextStyle(
+                            color: ps == winner
+                                ? Colors.white
+                                : CyberpunkColors.textSecondary,
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${ps.score.toString().padLeft(4)} PTS',
+                          style: TextStyle(
+                            color: ps == winner
+                                ? CyberpunkColors.amber
+                                : CyberpunkColors.textDim,
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              if (logLines.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                const Text(
+                  '// TERMINAL_LOGS',
+                  style: TextStyle(
+                    color: _kIndigoDim,
+                    fontSize: 9,
+                    letterSpacing: 2,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  color: const Color(0xFF030810),
+                  height: 80,
+                  child: ListView(
+                    reverse: true,
+                    children: logLines.reversed
+                        .take(6)
+                        .map(
+                          (l) => Text(
+                            l,
+                            style: TextStyle(
+                              color: CyberpunkColors.green.withValues(alpha: 0.75),
+                              fontSize: 8.5,
+                              fontFamily: 'monospace',
+                              height: 1.4,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0D2535),
+                    side: const BorderSide(color: _kIndigo),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  onPressed: onBack,
+                  child: const Text(
+                    '< BACK_TO_LOBBY',
+                    style: TextStyle(
+                      color: _kIndigo,
+                      fontSize: 11,
+                      letterSpacing: 2,
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

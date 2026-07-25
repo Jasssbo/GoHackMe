@@ -207,24 +207,39 @@ class AudioService {
 
   // ── Internal helpers ──────────────────────────────────────────────────────
 
-  /// Fire-and-forget: starts [assetPath] and self-disposes on completion.
+  AudioPlayer _getPoolPlayer() {
+    AudioPlayer? player;
+    for (final p in _polyphonicPool) {
+      if (p.state != PlayerState.playing) {
+        player = p;
+        break;
+      }
+    }
+    if (player == null) {
+      player = _polyphonicPool[_nextPoolIndex];
+      _nextPoolIndex = (_nextPoolIndex + 1) % _kMaxPolyphony;
+    }
+    return player;
+  }
+
+  /// Fire-and-forget: starts [assetPath] using a pooled player.
   Future<void> _fireAndForget(String? assetPath) async {
     if (_muted || assetPath == null) return;
     try {
-      final player = AudioPlayer();
+      final player = _getPoolPlayer();
+      await player.stop();
       await player.play(AssetSource(assetPath.replaceFirst('assets/', '')));
-      player.onPlayerComplete.listen((_) => player.dispose());
     } catch (_) {}
   }
 
-  /// Awaited: blocks the caller until the clip finishes (or fails).
+  /// Awaited: plays [assetPath] using a pooled player and awaits completion.
   Future<void> _playAndAwait(String? assetPath) async {
     if (_muted || assetPath == null) return;
     try {
-      final player = AudioPlayer();
+      final player = _getPoolPlayer();
+      await player.stop();
       await player.play(AssetSource(assetPath.replaceFirst('assets/', '')));
-      await player.onPlayerComplete.first;
-      await player.dispose();
+      await player.onPlayerComplete.first.timeout(const Duration(seconds: 5));
     } catch (_) {}
   }
 

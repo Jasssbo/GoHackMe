@@ -2,7 +2,9 @@ import 'package:go_router/go_router.dart';
 import 'package:go_engine/go_engine.dart';
 
 import '../../features/auth/screens/auth_screen.dart';
+import '../../features/board/screens/demo_screen.dart';
 import '../../features/board/screens/game_screen.dart';
+import '../../features/board/screens/hardcore_screen.dart';
 import '../../features/board/screens/lan_game_screen.dart';
 import '../../features/board/screens/lan_join_screen.dart';
 import '../../features/board/screens/local_game_screen.dart';
@@ -26,6 +28,8 @@ abstract class Routes {
   static const wiredJoin = '/wired/join';
   static const navi = '/navi';
   static const resumeGame = '/resume';
+  static const demo = '/demo';
+  static const hardcore = '/hardcore';
 
   static String gamePath(String roomId) => '/game/$roomId';
 }
@@ -132,6 +136,26 @@ final appRouter = GoRouter(
         return ResumeGameScreen(
           save: extras['save'] as SavedGame,
           mode: extras['mode'] as ResumeGameMode,
+        );
+      },
+    ),
+    GoRoute(
+      path: Routes.demo,
+      name: 'demo',
+      builder: (context, state) => const DemoScreen(),
+    ),
+    GoRoute(
+      path: Routes.hardcore,
+      name: 'hardcore',
+      builder: (context, state) {
+        final extras = state.extra as Map<String, dynamic>?;
+        final diffStr = extras?['difficulty'] as String? ?? 'intermediate';
+        final difficulty = diffStr == 'beginner'
+            ? BotDifficulty.beginner
+            : BotDifficulty.intermediate;
+        return HardcoreScreen(
+          boardSize: (extras?['boardSize'] as int?) ?? 9,
+          difficulty: difficulty,
         );
       },
     ),

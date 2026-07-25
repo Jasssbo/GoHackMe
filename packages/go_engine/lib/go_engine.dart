@@ -17,6 +17,7 @@ export 'src/engine/go_rules.dart';
 export 'src/engine/scorer.dart';
 export 'src/engine/attack_system.dart';
 export 'src/engine/game_engine.dart';
+export 'src/engine/game_event.dart';
 export 'src/engine/bot_player.dart';
 
 // ── Messages (shared client↔server protocol) ────────────────────────────────

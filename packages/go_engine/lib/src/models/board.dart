@@ -90,13 +90,13 @@ class Board {
     return true;
   }
 
+  /// Uses the pre-computed [zobristHash] so this is O(1) rather than O(stones).
+  ///
+  /// The Zobrist hash is maintained incrementally in [place] and [remove], so
+  /// two boards with identical stone layouts always produce the same value —
+  /// satisfying the hashCode/== contract at a fraction of the cost.
   @override
-  int get hashCode => Object.hash(
-        size,
-        Object.hashAllUnordered(
-          _stones.entries.map((e) => Object.hash(e.key, e.value)),
-        ),
-      );
+  int get hashCode => Object.hash(size, zobristHash);
 
   @override
   String toString() => 'Board(${size}x$size, ${_stones.length} stones)';

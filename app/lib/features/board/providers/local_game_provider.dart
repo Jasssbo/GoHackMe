@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:isolate';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_engine/go_engine.dart';
@@ -43,6 +44,20 @@ class LocalGameNotifier extends Notifier<GameState?> {
   BotDifficulty _difficulty = BotDifficulty.intermediate;
   Timer? _turnTimer;
 
+  // ── Event stream ──────────────────────────────────────────────────────────
+
+  /// Broadcast stream of typed [GameEvent]s.
+  ///
+  /// Consumers (terminal renderer, tutorial narration) listen here instead of
+  /// diffing [GameState] snapshots.  The stream is closed when the provider
+  /// is disposed.
+  final StreamController<GameEvent> _eventController =
+      StreamController<GameEvent>.broadcast();
+
+  /// The public event stream.  Use [localGameEventProvider] to watch it via
+  /// Riverpod, or call this getter directly from a notifier.
+  Stream<GameEvent> get events => _eventController.stream;
+
   /// IDs of all bot players in the current game.
   List<String> _botIds = ['bot_1'];
 
@@ -54,7 +69,10 @@ class LocalGameNotifier extends Notifier<GameState?> {
 
   @override
   GameState? build() {
-    ref.onDispose(() => _turnTimer?.cancel());
+    ref.onDispose(() {
+      _turnTimer?.cancel();
+      _eventController.close();
+    });
     return null;
   }
 
@@ -235,10 +253,14 @@ class LocalGameNotifier extends Notifier<GameState?> {
 
   void _applyResult(ActionResult result) {
     switch (result) {
-      case ActionSuccess(:final newState, :final logMessage):
+      case ActionSuccess(:final newState, :final logMessage, :final event):
         state = newState;
         if (logMessage != null) {
           ref.read(localGameLogProvider.notifier).append(logMessage);
+        }
+        // Emit the typed event to all stream listeners.
+        if (event != null && !_eventController.isClosed) {
+          _eventController.add(event);
         }
 
         if (GameEngine.isGameOver(newState)) {
@@ -271,20 +293,22 @@ class LocalGameNotifier extends Notifier<GameState?> {
     });
   }
 
-  void _runBotTurn() {
+  Future<void> _runBotTurn() async {
     final current = state;
     if (current == null) return;
     if (!_isBot(current.currentPlayerId)) return;
     if (GameEngine.isGameOver(current)) return;
 
     final botId = current.currentPlayerId;
+    final difficulty = _difficulty;
     final botLabel =
         current.players.firstWhere((p) => p.id == botId).displayName;
 
     // In hijackedVictimPlacement the bot (hijacker) must place a stone in
-    // the victim's colour.  Pick any legal position and place it.
+    // the victim's colour. Pick any legal position and place it.
     if (current.phase == GamePhase.hijackedVictimPlacement) {
-      final move = BotPlayer.pickMove(current, botId, _difficulty);
+      final move = await Isolate.run(() => BotPlayer.pickMove(current, botId, difficulty));
+      if (state != current) return; // Discard if state changed (e.g. user undo/exit)
       if (move != null) {
         ref
             .read(localGameLogProvider.notifier)
@@ -303,7 +327,9 @@ class LocalGameNotifier extends Notifier<GameState?> {
     if (current.phase != GamePhase.attack) return;
 
     // Bot may choose to attack first (attacks are valid in placement phase).
-    final attack = BotPlayer.pickAttack(current, botId, _humanId, _difficulty);
+    final attack = await Isolate.run(() => BotPlayer.pickAttack(current, botId, _humanId, difficulty));
+    if (state != current) return;
+
     GameState afterAttack = current;
     if (attack != null) {
       final ar = GameEngine.launchAttack(current, attack);
@@ -316,8 +342,10 @@ class LocalGameNotifier extends Notifier<GameState?> {
       }
     }
 
-    // Bot places stone or passes.
-    final move = BotPlayer.pickMove(afterAttack, botId, _difficulty);
+    // Bot places stone or passes (computed in background isolate).
+    final move = await Isolate.run(() => BotPlayer.pickMove(afterAttack, botId, difficulty));
+    if (state != afterAttack) return;
+
     if (move == null) {
       ref.read(localGameLogProvider.notifier).append('$botLabel >> PASS');
       _applyResult(GameEngine.pass(afterAttack, botId));
@@ -342,8 +370,25 @@ class LocalGameNotifier extends Notifier<GameState?> {
             .append('   ${player.displayName}: ${entry.value} pts');
       }
     }
+    // Emit final scores event.
+    if (!_eventController.isClosed) {
+      _eventController.add(GameOverEvent(scores: scores));
+    }
   }
 }
 
 final localGameProvider =
     NotifierProvider<LocalGameNotifier, GameState?>(LocalGameNotifier.new);
+
+/// Exposes the typed [GameEvent] stream from [LocalGameNotifier] as a
+/// Riverpod [StreamProvider].
+///
+/// Use this to drive the terminal renderer or tutorial narration:
+/// ```dart
+/// ref.listen(localGameEventProvider, (_, next) {
+///   if (next case AsyncData(:final value)) _handleEvent(value);
+/// });
+/// ```
+final localGameEventProvider = StreamProvider<GameEvent>((ref) {
+  return ref.watch(localGameProvider.notifier).events;
+});

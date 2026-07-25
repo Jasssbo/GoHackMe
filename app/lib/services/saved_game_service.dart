@@ -32,6 +32,9 @@ class SavedGame {
   /// Copy of every [Player] from the saved state (for display in the UI).
   List<Player> get players => state.players;
 
+  /// Schema version tag for backwards-compatible state loading.
+  final int version;
+
   const SavedGame({
     required this.saveId,
     required this.label,
@@ -40,9 +43,11 @@ class SavedGame {
     required this.playerCount,
     required this.saverPlayerIndex,
     required this.state,
+    this.version = 1,
   });
 
   Map<String, dynamic> toJson() => {
+        'version': version,
         'saveId': saveId,
         'label': label,
         'savedAt': savedAt.toUtc().toIso8601String(),
@@ -53,6 +58,7 @@ class SavedGame {
       };
 
   factory SavedGame.fromJson(Map<String, dynamic> json) => SavedGame(
+        version: json['version'] as int? ?? 1,
         saveId: json['saveId'] as String,
         label: json['label'] as String,
         savedAt: DateTime.parse(json['savedAt'] as String),
@@ -96,7 +102,18 @@ class SavedGameService {
     );
     final dir = await _dir();
     final file = File('${dir.path}/$id.json');
-    await file.writeAsString(jsonEncode(saved.toJson()));
+    final tempFile = File('${dir.path}/$id.tmp');
+    final jsonStr = jsonEncode(saved.toJson());
+
+    // Atomic save file write: write to .tmp, flush to disk, then rename to .json
+    await tempFile.writeAsString(jsonStr, flush: true);
+    try {
+      await tempFile.rename(file.path);
+    } catch (_) {
+      // Fallback for file systems that restrict cross-link atomic renames
+      await tempFile.copy(file.path);
+      if (await tempFile.exists()) await tempFile.delete();
+    }
     return saved;
   }
 

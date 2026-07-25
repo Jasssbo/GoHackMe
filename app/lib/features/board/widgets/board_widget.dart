@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_engine/go_engine.dart';
 
+import '../../../core/performance/performance_provider.dart';
 import 'board_painter.dart';
 
 /// Interactive, rotatable 3-D Go board widget.
@@ -17,7 +20,7 @@ import 'board_painter.dart';
 ///
 /// Touching anywhere in the widget — including outside the board itself —
 /// triggers the orbit gesture, making it easy to reposition the view.
-class BoardWidget extends StatefulWidget {
+class BoardWidget extends ConsumerStatefulWidget {
   final Board board;
   final int boardSize;
   final Position? lastPlaced;
@@ -42,10 +45,10 @@ class BoardWidget extends StatefulWidget {
   });
 
   @override
-  State<BoardWidget> createState() => _BoardWidgetState();
+  ConsumerState<BoardWidget> createState() => _BoardWidgetState();
 }
 
-class _BoardWidgetState extends State<BoardWidget>
+class _BoardWidgetState extends ConsumerState<BoardWidget>
     with TickerProviderStateMixin {
   // ── Animation ─────────────────────────────────────────────────────────────
   late final AnimationController _pulseCtrl;
@@ -53,6 +56,8 @@ class _BoardWidgetState extends State<BoardWidget>
   late final AnimationController _flickerCtrl; // CRT flicker
   late final AnimationController _turnCtrl;    // active-player turn blink
   double _flickerAlpha = 0.0;
+  // Pending flicker delay — stored so it can be canceled in dispose().
+  Timer? _flickerTimer;
 
   // ── View state ────────────────────────────────────────────────────────────
   double _azimuth   = math.pi / 4;     // 45° — classic isometric
@@ -119,8 +124,11 @@ class _BoardWidgetState extends State<BoardWidget>
   }
 
   void _manageTickers() {
+    final perfMode = ref.read(performanceModeProvider);
     final isFinishedOrScoring = widget.scoringTerritory != null;
-    if (isFinishedOrScoring) {
+    final isPowerSave = perfMode == PerformanceMode.powerSave;
+
+    if (isFinishedOrScoring || isPowerSave) {
       if (_turnCtrl.isAnimating) _turnCtrl.stop();
       if (_pulseCtrl.isAnimating) _pulseCtrl.stop();
       if (_packetCtrl.isAnimating) _packetCtrl.stop();
@@ -132,22 +140,25 @@ class _BoardWidgetState extends State<BoardWidget>
   }
 
   void _scheduleFlicker() {
-    Future.delayed(
+    // Store the timer so dispose() can cancel it if the widget unmounts
+    // before the delay fires — avoids use-after-dispose on _flickerCtrl.
+    _flickerTimer = Timer(
       Duration(milliseconds: 3000 + math.Random().nextInt(5000)),
       () {
         if (!mounted) return;
+        setState(() => _flickerAlpha = 0.6 + math.Random().nextDouble() * 0.4);
         _flickerCtrl.forward(from: 0).then((_) {
           if (!mounted) return;
           setState(() => _flickerAlpha = 0.0);
           _scheduleFlicker();
         });
-        setState(() => _flickerAlpha = 0.6 + math.Random().nextDouble() * 0.4);
       },
     );
   }
 
   @override
   void dispose() {
+    _flickerTimer?.cancel(); // stop any pending delay before disposing the controller
     _pulseCtrl.dispose();
     _packetCtrl.dispose();
     _flickerCtrl.dispose();
@@ -243,28 +254,31 @@ class _BoardWidgetState extends State<BoardWidget>
             child: AnimatedBuilder(
             animation: Listenable.merge([_pulseCtrl, _packetCtrl, _flickerCtrl, _turnCtrl]),
             builder: (_, __) => RepaintBoundary(
-              child: CustomPaint(
-                size: _canvasSize,
-                painter: BoardPainter(
-                  board:             widget.board,
-                  boardSize:         widget.boardSize,
-                  lastPlaced:        widget.lastPlaced,
-                  starPulse:         _pulseCtrl.value,
-                  packetPhase:       _packetCtrl.value,
-                  flickerAlpha:      _flickerAlpha,
-                  azimuth:           _azimuth,
-                  elevation:         _elevation,
-                  zoom:              _zoom,
-                  activePlayerColor: widget.activePlayerColor,
-                  activePulse:       _turnCtrl.value,
-                  scoringTerritory:  widget.scoringTerritory,
+              child: Semantics(
+                container: true,
+                label: 'Go Board ${widget.boardSize}x${widget.boardSize}. Active turn: ${widget.activePlayerColor?.name ?? "neutral"}. Double tap to place stone.',
+                child: CustomPaint(
+                  size: _canvasSize,
+                  painter: BoardPainter(
+                    board:             widget.board,
+                    boardSize:         widget.boardSize,
+                    lastPlaced:        widget.lastPlaced,
+                    starPulse:         _pulseCtrl.value,
+                    packetPhase:       _packetCtrl.value,
+                    flickerAlpha:      _flickerAlpha,
+                    azimuth:           _azimuth,
+                    elevation:         _elevation,
+                    zoom:              _zoom,
+                    activePlayerColor: widget.activePlayerColor,
+                    activePulse:       _turnCtrl.value,
+                    scoringTerritory:  widget.scoringTerritory,
+                  ),
                 ),
               ),
             ),
           ),
         ),
       );
-      },
-    );
+    });
   }
 }

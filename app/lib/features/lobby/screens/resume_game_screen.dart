@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/cyberpunk_colors.dart';
+import '../../../core/theme/ui_scale.dart';
 import '../../../core/widgets/glitch_overlay.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../board/providers/wired_game_provider.dart';
@@ -322,6 +323,7 @@ class _ResumeGameScreenState extends ConsumerState<ResumeGameScreen> {
       case LanGameStatus.over:
         return _ResumeGameOverPanel(
           state: ls.gameState!,
+          logLines: ls.logLines,
           onBack: () {
             ref.read(lanGameProvider.notifier).leave();
             context.go(Routes.lobby);
@@ -732,32 +734,165 @@ class _ResumeWaitingPanel extends StatelessWidget {
 
 class _ResumeGameOverPanel extends StatelessWidget {
   final GameState state;
+  final List<String> logLines;
   final VoidCallback onBack;
 
-  const _ResumeGameOverPanel({required this.state, required this.onBack});
+  const _ResumeGameOverPanel({
+    required this.state,
+    this.logLines = const [],
+    required this.onBack,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final scores = Scorer.areaScore(state.board);
+
+    final playerScores = [
+      for (int i = 0; i < state.players.length; i++)
+        (
+          player: state.players[i],
+          score: (scores[StoneColor.fromIndex(i)] ?? 0) +
+              (state.captureCount[state.players[i].id] ?? 0),
+        ),
+    ];
+    playerScores.sort((a, b) => b.score.compareTo(a.score));
+    final winner = playerScores.isNotEmpty ? playerScores.first : null;
+
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text(
-            'GAME_OVER',
-            style: TextStyle(
-              color: CyberpunkColors.cyan,
-              fontSize: 22,
-              letterSpacing: 6,
-              fontFamily: 'monospace',
-              fontWeight: FontWeight.w700,
-            ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: context.s(420)),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF050D15),
+            border: Border.all(color: CyberpunkColors.cyanDim, width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: CyberpunkColors.cyan.withValues(alpha: 0.15),
+                blurRadius: 16,
+                spreadRadius: 2,
+              ),
+            ],
           ),
-          const SizedBox(height: 24),
-          ElevatedButton(
-            onPressed: onBack,
-            child: const Text('< BACK_TO_LOBBY'),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '╔══ GAME_OVER.log ══╗',
+                style: TextStyle(
+                  color: CyberpunkColors.cyan,
+                  fontSize: 15,
+                  letterSpacing: 2,
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (winner != null) ...[
+                Text(
+                  '>> WINNER: ${winner.player.displayName}',
+                  style: const TextStyle(
+                    color: CyberpunkColors.green,
+                    fontSize: 13,
+                    letterSpacing: 1.5,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...playerScores.map(
+                  (ps) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      children: [
+                        Text(
+                          '   ${ps.player.displayName.padRight(14)}',
+                          style: TextStyle(
+                            color: ps == winner
+                                ? Colors.white
+                                : CyberpunkColors.textSecondary,
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${ps.score.toString().padLeft(4)} PTS',
+                          style: TextStyle(
+                            color: ps == winner
+                                ? CyberpunkColors.amber
+                                : CyberpunkColors.textDim,
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              if (logLines.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                const Text(
+                  '// TERMINAL_LOGS',
+                  style: TextStyle(
+                    color: CyberpunkColors.cyanDim,
+                    fontSize: 9,
+                    letterSpacing: 2,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  color: const Color(0xFF030810),
+                  height: 80,
+                  child: ListView(
+                    reverse: true,
+                    children: logLines.reversed
+                        .take(6)
+                        .map(
+                          (l) => Text(
+                            l,
+                            style: TextStyle(
+                              color: CyberpunkColors.green.withValues(alpha: 0.75),
+                              fontSize: 8.5,
+                              fontFamily: 'monospace',
+                              height: 1.4,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0D2535),
+                    side: const BorderSide(color: CyberpunkColors.cyan),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  onPressed: onBack,
+                  child: const Text(
+                    '< BACK_TO_LOBBY',
+                    style: TextStyle(
+                      color: CyberpunkColors.cyan,
+                      fontSize: 11,
+                      letterSpacing: 2,
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

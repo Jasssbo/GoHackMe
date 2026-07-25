@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,10 +10,26 @@ import 'core/theme/cyberpunk_theme.dart';
 import 'core/theme/ui_scale.dart';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  // ── 1-1: Fire startup sound before any UI frame renders ──────────────────
-  _playStartupSound();
-  runApp(const ProviderScope(child: GoHackMeApp()));
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+
+    // ── Global Error Handlers ────────────────────────────────────────────────
+    FlutterError.onError = (details) {
+      FlutterError.presentError(details);
+      debugPrint('[GLOBAL_FLUTTER_ERROR] ${details.exceptionAsString()}\n${details.stack}');
+    };
+
+    PlatformDispatcher.instance.onError = (error, stack) {
+      debugPrint('[GLOBAL_PLATFORM_ERROR] $error\n$stack');
+      return true; // Error handled gracefully
+    };
+
+    // ── 1-1: Fire startup sound before any UI frame renders ──────────────────
+    _playStartupSound();
+    runApp(const ProviderScope(child: GoHackMeApp()));
+  }, (error, stack) {
+    debugPrint('[GLOBAL_ZONED_ERROR] $error\n$stack');
+  });
 }
 
 /// Plays `1-1-startup.mp3` using a standalone [AudioPlayer] that lives

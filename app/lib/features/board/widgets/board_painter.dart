@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:go_engine/go_engine.dart';
@@ -262,12 +263,21 @@ class BoardPainter extends CustomPainter {
         Paint()..color = const Color(0xFF05080A)..style = PaintingStyle.fill);
     canvas.save();
     canvas.clipPath(path);
-    final dp   = Paint()..color = const Color(0xFF0E1A15).withValues(alpha: 0.6);
+    final dp = Paint()
+      ..color = const Color(0xFF0E1A15).withValues(alpha: 0.6)
+      ..strokeWidth = 1.1
+      ..strokeCap = StrokeCap.round;
     final step = _s * 0.55;
-    for (double x = 0; x < size.width; x += step) {
-      for (double y = 0; y < size.height; y += step) {
-        final stagger = ((x / step).floor() % 2 == 0) ? 0.0 : step * 0.5;
-        canvas.drawCircle(Offset(x, y + stagger), 0.55, dp);
+    if (step > 1.0) {
+      final points = <Offset>[];
+      for (double x = 0; x < size.width; x += step) {
+        for (double y = 0; y < size.height; y += step) {
+          final stagger = ((x / step).floor() % 2 == 0) ? 0.0 : step * 0.5;
+          points.add(Offset(x, y + stagger));
+        }
+      }
+      if (points.isNotEmpty) {
+        canvas.drawPoints(PointMode.points, points, dp);
       }
     }
     canvas.restore();
@@ -836,12 +846,15 @@ class BoardPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(BoardPainter old) =>
-      old.board        != board        ||
-      old.lastPlaced   != lastPlaced   ||
-      old.starPulse    != starPulse    ||
-      old.packetPhase  != packetPhase  ||
-      old.flickerAlpha != flickerAlpha ||
-      old.azimuth      != azimuth      ||
-      old.elevation    != elevation    ||
-      old.zoom         != zoom;
+      old.board             != board             ||
+      old.lastPlaced        != lastPlaced        ||
+      old.starPulse         != starPulse         ||
+      old.packetPhase       != packetPhase       ||
+      old.flickerAlpha      != flickerAlpha      ||
+      old.azimuth           != azimuth           ||
+      old.elevation         != elevation         ||
+      old.zoom              != zoom              ||
+      old.activePlayerColor != activePlayerColor ||
+      old.activePulse       != activePulse       ||
+      old.scoringTerritory  != scoringTerritory;
 }

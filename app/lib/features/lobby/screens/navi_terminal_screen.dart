@@ -1,8 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/localization/app_localizations.dart';
+import '../../../core/performance/performance_provider.dart';
+import '../../../core/privacy/privacy_dialog.dart';
 import '../../../core/theme/cyberpunk_colors.dart';
 
 // ── NAVI response content ─────────────────────────────────────────────────
@@ -31,12 +32,14 @@ const Map<String, List<String>> _naviResponses = {
   'help': [
     '> AVAILABLE QUERIES:',
     '',
-    '  [1]    — what is GoHackMe?',
-    '  [2]    — how do i play?',
-    '  [3]    — what are the attacks?',
-    '  [4]    — how do i play with others?',
-    '  [lain] — what is the wired?',
-    '  [tos]  — terms of service / legal protocol',
+    '  [1]       — what is GoHackMe?',
+    '  [2]       — how do i play?',
+    '  [3]       — what are the attacks?',
+    '  [4]       — how do i play with others?',
+    '  [lang]    — language settings (lang en/es/ja/zh)',
+    '  [privacy] — view zero-data privacy policy',
+    '  [lain]    — what is the wired?',
+    '  [tos]     — terms of service / legal protocol',
     '',
   ],
   '1': [
@@ -234,9 +237,13 @@ const Map<String, List<String>> _naviResponses = {
     '  These terms are governed by applicable local law.',
     '  Disputes shall be resolved in your jurisdiction.',
     '',
-    '  — CONTACT —',
-    '  To report a violation or exercise data rights,',
-    '  open an issue on the GitHub repository.',
+    '  — PUBLIC LEGAL & PRIVACY PROTOCOL —',
+    '  Public Web Privacy Policy:',
+    '  https://jasssbo.github.io/GoHackMe/privacy.html',
+    '',
+    '  — CONTACT & ISSUES —',
+    '  To report a violation, request data purge, or open an issue:',
+    '  https://github.com/Jasssbo/GoHackMe_Flutter',
     '',
     '  End of protocol. The Wired remembers.',
     '',
@@ -245,14 +252,14 @@ const Map<String, List<String>> _naviResponses = {
 
 // ── Screen ────────────────────────────────────────────────────────────────
 
-class NaviTerminalScreen extends StatefulWidget {
+class NaviTerminalScreen extends ConsumerStatefulWidget {
   const NaviTerminalScreen({super.key});
 
   @override
-  State<NaviTerminalScreen> createState() => _NaviTerminalScreenState();
+  ConsumerState<NaviTerminalScreen> createState() => _NaviTerminalScreenState();
 }
 
-class _NaviTerminalScreenState extends State<NaviTerminalScreen> {
+class _NaviTerminalScreenState extends ConsumerState<NaviTerminalScreen> {
   final List<_TerminalLine> _lines = [];
   final ScrollController _scrollCtrl = ScrollController();
   final TextEditingController _inputCtrl = TextEditingController();
@@ -335,6 +342,50 @@ class _NaviTerminalScreenState extends State<NaviTerminalScreen> {
       return;
     }
 
+    if (raw == 'privacy') {
+      PrivacyNoticeDialog.show(context);
+      _appendLine('  Opening ZERO_DATA_PRIVACY_POLICY modal...', kind: _LineKind.navi);
+      _focusNode.requestFocus();
+      return;
+    }
+
+    if (raw.startsWith('lang')) {
+      final parts = raw.split(RegExp(r'\s+'));
+      if (parts.length > 1) {
+        final code = parts[1];
+        final lang = AppLanguage.fromCode(code);
+        ref.read(localeProvider.notifier).setLanguage(lang);
+        _appendLine('  LANGUAGE_SET :: ${lang.label} (${lang.code})', kind: _LineKind.navi);
+        _appendLine('  UI strings updated to ${lang.nativeName}.', kind: _LineKind.navi);
+      } else {
+        _appendLine('  SUPPORTED LANGUAGES:', kind: _LineKind.navi);
+        for (final l in AppLanguage.values) {
+          _appendLine('  • ${l.code.padRight(4)} — ${l.label} (${l.nativeName})', kind: _LineKind.navi);
+        }
+        _appendLine('  Type [lang <code>] to switch language.', kind: _LineKind.navi);
+      }
+      _focusNode.requestFocus();
+      return;
+    }
+
+    if (raw.startsWith('perf')) {
+      final parts = raw.split(RegExp(r'\s+'));
+      if (parts.length > 1) {
+        final mode = PerformanceMode.fromCode(parts[1]);
+        ref.read(performanceModeProvider.notifier).setMode(mode);
+        _appendLine('  PERFORMANCE_MODE :: ${mode.label}', kind: _LineKind.navi);
+        _appendLine('  ${mode.description}', kind: _LineKind.navi);
+      } else {
+        final current = ref.read(performanceModeProvider);
+        _appendLine('  CURRENT PERFORMANCE MODE: ${current.label}', kind: _LineKind.navi);
+        _appendLine('  • high  — Full 60 FPS ambient pulse animations', kind: _LineKind.navi);
+        _appendLine('  • save  — Power-save static glow mode (0 FPS GPU idle)', kind: _LineKind.navi);
+        _appendLine('  Type [perf high] or [perf save] to toggle.', kind: _LineKind.navi);
+      }
+      _focusNode.requestFocus();
+      return;
+    }
+
     final response = _naviResponses[raw];
     if (response != null) {
       setState(() => _inputEnabled = false);
@@ -350,6 +401,7 @@ class _NaviTerminalScreenState extends State<NaviTerminalScreen> {
         kind: _LineKind.navi,
       );
       _appendLine('', kind: _LineKind.navi);
+      _focusNode.requestFocus();
     }
   }
 
@@ -359,32 +411,40 @@ class _NaviTerminalScreenState extends State<NaviTerminalScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: CyberpunkColors.background,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // ── Terminal header bar ────────────────────────────────────
-            _TerminalHeader(
-              onClose: () => Navigator.of(context).pop(),
-            ),
-            // ── Output area ────────────────────────────────────────────
-            Expanded(
-              child: ListView.builder(
-                controller: _scrollCtrl,
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                itemCount: _lines.length,
-                itemBuilder: (context, i) => _LineWidget(line: _lines[i]),
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          if (!_focusNode.hasFocus && _inputEnabled) {
+            _focusNode.requestFocus();
+          }
+        },
+        child: SafeArea(
+          child: Column(
+            children: [
+              // ── Terminal header bar ────────────────────────────────────
+              _TerminalHeader(
+                onClose: () => Navigator.of(context).pop(),
               ),
-            ),
-            // ── Blinking cursor row when typing ───────────────────────
-            if (_isTyping) const _CursorRow(),
-            // ── Input row ─────────────────────────────────────────────
-            _InputRow(
-              controller: _inputCtrl,
-              focusNode: _focusNode,
-              enabled: _inputEnabled,
-              onSubmit: _submit,
-            ),
-          ],
+              // ── Output area ────────────────────────────────────────────
+              Expanded(
+                child: ListView.builder(
+                  controller: _scrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  itemCount: _lines.length,
+                  itemBuilder: (context, i) => _LineWidget(line: _lines[i]),
+                ),
+              ),
+              // ── Blinking cursor row when typing ───────────────────────
+              if (_isTyping) const _CursorRow(),
+              // ── Input row ─────────────────────────────────────────────
+              _InputRow(
+                controller: _inputCtrl,
+                focusNode: _focusNode,
+                enabled: _inputEnabled,
+                onSubmit: _submit,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -560,41 +620,32 @@ class _InputRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: KeyboardListener(
-              focusNode: FocusNode(),
-              onKeyEvent: (event) {
-                if (enabled &&
-                    event is KeyDownEvent &&
-                    event.logicalKey == LogicalKeyboardKey.enter) {
-                  onSubmit();
-                }
-              },
-              child: TextField(
-                controller: controller,
-                focusNode: focusNode,
-                enabled: enabled,
-                style: TextStyle(
-                  color: CyberpunkColors.cyan.withValues(alpha: 0.90),
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                  letterSpacing: 0.4,
-                ),
-                decoration: InputDecoration(
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.zero,
-                  hintText: enabled ? 'type a command...' : '',
-                  hintStyle: TextStyle(
-                    color: CyberpunkColors.amber.withValues(alpha: 0.20),
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-                onSubmitted: (_) => enabled ? onSubmit() : null,
-                cursorColor: CyberpunkColors.amber,
-                cursorWidth: 7,
-                cursorHeight: 13,
+            child: TextField(
+              controller: controller,
+              focusNode: focusNode,
+              enabled: enabled,
+              autofocus: true,
+              style: TextStyle(
+                color: CyberpunkColors.cyan.withValues(alpha: 0.90),
+                fontSize: 12,
+                fontFamily: 'monospace',
+                letterSpacing: 0.4,
               ),
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+                hintText: enabled ? 'type a command...' : '',
+                hintStyle: TextStyle(
+                  color: CyberpunkColors.amber.withValues(alpha: 0.20),
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              onSubmitted: (_) => enabled ? onSubmit() : null,
+              cursorColor: CyberpunkColors.amber,
+              cursorWidth: 7,
+              cursorHeight: 13,
             ),
           ),
           const SizedBox(width: 8),

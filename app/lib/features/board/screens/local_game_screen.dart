@@ -129,8 +129,7 @@ class _LocalGameScreenState extends ConsumerState<LocalGameScreen> {
       saverPlayerIndex: playerIdx >= 0 ? playerIdx : 0,
       label: 'SOLO · ${state.board.size}x${state.board.size} · T${state.turnNumber}',
     );
-    if (!mounted) return;
-    // ignore: use_build_context_synchronously
+    if (!mounted || !context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
       content: Text('GAME_SAVED  ·  resume from lobby',
           style: TextStyle(fontFamily: 'monospace')),

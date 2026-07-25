@@ -5,6 +5,7 @@ import '../models/player.dart';
 import '../models/position.dart';
 import '../models/stone_color.dart';
 import 'attack_system.dart';
+import 'game_event.dart';
 import 'go_rules.dart';
 import 'scorer.dart';
 
@@ -20,7 +21,14 @@ class ActionSuccess extends ActionResult {
   /// Optional server-log message (e.g. "CAPTURED 3 stones").
   final String? logMessage;
 
-  const ActionSuccess(this.newState, {this.logMessage});
+  /// Optional typed event describing what just happened.
+  ///
+  /// Null for internal chain steps (e.g. the intermediate state after a DDOS
+  /// skip where another skip immediately follows). The final [ActionSuccess]
+  /// emitted to callers always carries the most meaningful event.
+  final GameEvent? event;
+
+  const ActionSuccess(this.newState, {this.logMessage, this.event});
 }
 
 class ActionFailure extends ActionResult {
@@ -173,7 +181,19 @@ class GameEngine {
       turnNumber: state.turnNumber + 1,
     );
     nextState = AttackSystem.tickEffectsForPlayer(nextState, nextPlayerId);
-    return _autoResolveEffects(nextState, log);
+    // Emit hijacked placement event before chaining auto-resolve.
+    final hijackPlaceEvent = StonePlacedEvent(
+      playerId: playerId,
+      pos: pos,
+      color: color,
+      isHijacked: true,
+    );
+    final chainResult = _autoResolveEffects(nextState, log);
+    if (chainResult case ActionSuccess(:final newState, :final logMessage)) {
+      return ActionSuccess(newState,
+          logMessage: logMessage, event: hijackPlaceEvent);
+    }
+    return chainResult;
   }
 
   // ── Pass ──────────────────────────────────────────────────────────────────
@@ -197,6 +217,7 @@ class GameEngine {
           phase: GamePhase.scoring,
         ),
         logMessage: '>> LAYER_RESOLVED :: ALL ENTITIES PASSED',
+        event: PlayerPassedEvent(playerId: playerId),
       );
     }
 
@@ -210,7 +231,14 @@ class GameEngine {
       phase: GamePhase.attack,
     );
     nextState = AttackSystem.tickEffectsForPlayer(nextState, nextPlayerId);
-    return _autoResolveEffects(nextState, '>> IDLE_PROTOCOL :: PASS');
+    final passChain = _autoResolveEffects(nextState, '>> IDLE_PROTOCOL :: PASS');
+    // Carry the pass event through the chain result.
+    if (passChain case ActionSuccess(:final newState, :final logMessage)) {
+      return ActionSuccess(newState,
+          logMessage: logMessage,
+          event: PlayerPassedEvent(playerId: playerId));
+    }
+    return passChain;
   }
 
   // ── End attack phase / advance turn ──────────────────────────────────────
@@ -273,6 +301,12 @@ class GameEngine {
         blocked,
         logMessage:
             '>> PATCH_BLOCKED :: ${card.terminalName} DEFLECTED BY $targetName',
+        event: AttackLaunchedEvent(
+          type: action.type,
+          attackerPlayerId: action.attackerPlayerId,
+          targetPlayerId: action.targetPlayerId,
+          wasBlocked: true,
+        ),
       );
     }
 
@@ -314,12 +348,23 @@ class GameEngine {
       final wormLog = wormCaptures.isNotEmpty
           ? '>> ATTACK_VECTOR :: ${card.terminalName} >> $targetName | NODE_CAPTURE: ${wormCaptures.length} [+${wormCaptures.length} SN]'
           : '>> ATTACK_VECTOR :: ${card.terminalName} >> $targetName';
-      return ActionSuccess(resolvedState, logMessage: wormLog);
+      return ActionSuccess(resolvedState,
+          logMessage: wormLog,
+          event: AttackLaunchedEvent(
+            type: action.type,
+            attackerPlayerId: action.attackerPlayerId,
+            targetPlayerId: action.targetPlayerId,
+          ));
     }
 
     return ActionSuccess(
       newState,
       logMessage: '>> ATTACK_VECTOR :: ${card.terminalName} >> $targetName',
+      event: AttackLaunchedEvent(
+        type: action.type,
+        attackerPlayerId: action.attackerPlayerId,
+        targetPlayerId: action.targetPlayerId,
+      ),
     );
   }
 
@@ -346,6 +391,7 @@ class GameEngine {
     return ActionSuccess(
       nextState,
       logMessage: '>> DDoS_ACTIVE :: ${state.currentPlayer.displayName} SIGNAL BLOCKED',
+      event: DdosSkipEvent(skippedPlayerId: playerId),
     );
   }
 
@@ -386,6 +432,10 @@ class GameEngine {
             phase: GamePhase.hijackedVictimPlacement,
           ),
           logMessage: logs.join(' | '),
+          event: HijackActivatedEvent(
+            hijackerPlayerId: hijackerId,
+            victimPlayerId: currentId,
+          ),
         );
       }
 
@@ -486,7 +536,13 @@ class GameEngine {
       final backdoorLog = log.isNotEmpty
           ? '$log | >> BACKDOOR :: DOUBLE_STONE_ACTIVE'
           : '>> BACKDOOR :: DOUBLE_STONE_ACTIVE';
-      return ActionSuccess(sameTurnState, logMessage: backdoorLog);
+      return ActionSuccess(sameTurnState,
+          logMessage: backdoorLog,
+          event: StonePlacedEvent(
+            playerId: playerId,
+            pos: pos,
+            color: color,
+          ));
     }
 
     // Placement done → immediately advance to next player.
@@ -506,7 +562,22 @@ class GameEngine {
       turnNumber: state.turnNumber + 1,
     );
     nextState = AttackSystem.tickEffectsForPlayer(nextState, nextPlayerId);
-    return _autoResolveEffects(nextState, log);
+    // Build the primary placement event (with captures if any).
+    final placeEvent = captureCount > 0
+        ? StonesCapturedEvent(
+            capturedByPlayerId: playerId,
+            captured: capturedPositions,
+          )
+        : StonePlacedEvent(
+            playerId: playerId,
+            pos: pos,
+            color: color,
+          ) as GameEvent;
+    final placeChain = _autoResolveEffects(nextState, log);
+    if (placeChain case ActionSuccess(:final newState, :final logMessage)) {
+      return ActionSuccess(newState, logMessage: logMessage, event: placeEvent);
+    }
+    return placeChain;
   }
 
   /// After [boardAfterCaptures], explodes any honeypot stones that were
