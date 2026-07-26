@@ -28,7 +28,8 @@ class ActionSuccess extends ActionResult {
   /// emitted to callers always carries the most meaningful event.
   final GameEvent? event;
 
-  const ActionSuccess(this.newState, {this.logMessage, this.event});
+  ActionSuccess(GameState state, {this.logMessage, this.event})
+      : newState = state.copyWith(sequenceId: state.sequenceId + 1);
 }
 
 class ActionFailure extends ActionResult {

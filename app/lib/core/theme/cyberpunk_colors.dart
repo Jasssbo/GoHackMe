@@ -34,8 +34,8 @@ class CyberpunkColors {
   // ── Player signal identities ──────────────────────────────────────────────
   /// P1 — vivid cold teal
   static const signalP1      = Color(0xFF38C8D8);
-  /// P2 — bright silver-blue
-  static const signalP2      = Color(0xFF90B8D0);
+  /// P2 — electric neon violet
+  static const signalP2      = Color(0xFFB840E0);
   /// P3 — bright phosphor green
   static const signalP3      = Color(0xFF72B83C);
   /// P4 — warm copper-orange

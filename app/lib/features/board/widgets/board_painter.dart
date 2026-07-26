@@ -74,7 +74,7 @@ const _signalIdentities = {
   ),
   StoneColor.p2: _SignalIdentity(
     baseColor: CyberpunkColors.signalP2,
-    dimColor:  Color(0xFF1E3040),
+    dimColor:  Color(0xFF28103A),
     nodeShape: 1,
     glowRadius: 0.55,
   ),

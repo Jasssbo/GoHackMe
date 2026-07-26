@@ -263,6 +263,10 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
   }
 
   void _onGameState(GameState gs) {
+    final current = state.gameState;
+    if (current != null && gs.sequenceId <= current.sequenceId) {
+      return; // Ignore out-of-order / stale packet under high network jitter
+    }
     final isOver =
         gs.phase == GamePhase.finished || gs.phase == GamePhase.scoring;
     state = state.copyWith(

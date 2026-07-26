@@ -71,6 +71,9 @@ class GameState {
   /// Active effects applied by the attack system.
   final List<ActiveEffect> activeEffects;
 
+  /// Monotonically increasing sequence integer for packet ordering validation.
+  final int sequenceId;
+
   const GameState({
     required this.board,
     required this.boardHashes,
@@ -84,6 +87,7 @@ class GameState {
     required this.consecutivePasses,
     required this.phase,
     required this.activeEffects,
+    this.sequenceId = 0,
   });
 
   // ── Convenience getters ───────────────────────────────────────────────────
@@ -129,6 +133,7 @@ class GameState {
       consecutivePasses: 0,
       phase: GamePhase.attack,
       activeEffects: const [],
+      sequenceId: 0,
     );
   }
 
@@ -147,6 +152,7 @@ class GameState {
     int? consecutivePasses,
     GamePhase? phase,
     List<ActiveEffect>? activeEffects,
+    int? sequenceId,
   }) =>
       GameState(
         board: board ?? this.board,
@@ -161,6 +167,7 @@ class GameState {
         consecutivePasses: consecutivePasses ?? this.consecutivePasses,
         phase: phase ?? this.phase,
         activeEffects: activeEffects ?? this.activeEffects,
+        sequenceId: sequenceId ?? this.sequenceId,
       );
 
   // ── JSON ──────────────────────────────────────────────────────────────────
@@ -182,6 +189,7 @@ class GameState {
         'turnNumber': turnNumber,
         'consecutivePasses': consecutivePasses,
         'activeEffects': activeEffects.map((e) => e.toJson()).toList(),
+        'sequenceId': sequenceId,
       };
 
   factory GameState.fromJson(Map<String, dynamic> json) {
@@ -219,6 +227,7 @@ class GameState {
       activeEffects: (json['activeEffects'] as List)
           .map((e) => ActiveEffect.fromJson(e as Map<String, dynamic>))
           .toList(),
+      sequenceId: json['sequenceId'] as int? ?? 0,
     );
   }
 }
