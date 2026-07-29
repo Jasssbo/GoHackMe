@@ -194,9 +194,6 @@ class WiredServerService implements IGameTransport {
     _logCtrl.add('UPLINK_ESTABLISHED');
   }
 
-    _logCtrl.add('UPLINK_ESTABLISHED');
-  }
-
   // ── Incoming messages ─────────────────────────────────────────────────────
 
   void _handleMessage(dynamic raw) {
