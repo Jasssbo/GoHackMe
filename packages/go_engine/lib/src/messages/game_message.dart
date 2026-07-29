@@ -121,6 +121,9 @@ class GameMessage {
     required String displayName,
     int boardSize = 19,
     int maxPlayers = 2,
+    double? lat,
+    double? lon,
+    String? country,
   }) =>
       GameMessage(
         type: MessageType.joinRoom,
@@ -130,6 +133,9 @@ class GameMessage {
           'displayName': displayName,
           'boardSize': boardSize,
           'maxPlayers': maxPlayers,
+          if (lat != null) 'lat': lat,
+          if (lon != null) 'lon': lon,
+          if (country != null) 'country': country,
         },
       );
 

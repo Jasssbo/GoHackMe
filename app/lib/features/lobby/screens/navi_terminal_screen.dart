@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/location/user_location_service.dart';
 import '../../../core/localization/app_localizations.dart';
 import '../../../core/performance/performance_provider.dart';
 import '../../../core/privacy/privacy_dialog.dart';
@@ -32,14 +33,15 @@ const Map<String, List<String>> _naviResponses = {
   'help': [
     '> AVAILABLE QUERIES:',
     '',
-    '  [1]       — what is GoHackMe?',
-    '  [2]       — how do i play?',
-    '  [3]       — what are the attacks?',
-    '  [4]       — how do i play with others?',
-    '  [lang]    — language settings (lang en/es/ja/zh)',
-    '  [privacy] — view zero-data privacy policy',
-    '  [lain]    — what is the wired?',
-    '  [tos]     — terms of service / legal protocol',
+    '  [1]        — what is GoHackMe?',
+    '  [2]        — how do i play?',
+    '  [3]        — what are the attacks?',
+    '  [4]        — how do i play with others?',
+    '  [location] — set/view Wired map location (location <country>)',
+    '  [lang]     — language settings (lang en/es/ja/zh)',
+    '  [privacy]  — view zero-data privacy policy',
+    '  [lain]     — what is the wired?',
+    '  [tos]      — terms of service / legal protocol',
     '',
   ],
   '1': [
@@ -205,10 +207,9 @@ const Map<String, List<String>> _naviResponses = {
     '',
     '  — ONLINE MULTIPLAYER (THE WIRED) —',
     '  The Wired mode transmits your display name and',
-    '  your device\'s IP address to our game server.',
-    '  Your IP is used only to pin your country on the',
-    '  globe widget. Precise coordinates are never stored.',
-    '  All server data is deleted within 2 hours.',
+    '  self-reported country node location. No third-party',
+    '  IP-API services are ever pinged.',
+    '  All server room data is erased within 2 hours.',
     '',
     '  — CHAT —',
     '  In-game chat is visible to all entities in your room.',
@@ -346,6 +347,34 @@ class _NaviTerminalScreenState extends ConsumerState<NaviTerminalScreen> {
       PrivacyNoticeDialog.show(context);
       _appendLine('  Opening ZERO_DATA_PRIVACY_POLICY modal...', kind: _LineKind.navi);
       _focusNode.requestFocus();
+      return;
+    }
+
+    if (raw.startsWith('location') || raw.startsWith('loc')) {
+      final parts = raw.split(RegExp(r'\s+'));
+      if (parts.length > 1) {
+        final query = parts.sublist(1).join(' ');
+        ref.read(userLocationProvider.notifier).setCountry(query).then((loc) {
+          if (!mounted) return;
+          _appendLine('  LOCATION_SET :: ${loc.countryName} (${loc.countryCode})', kind: _LineKind.navi);
+          _appendLine('  CASUAL_IP    :: ${loc.casualIp}', kind: _LineKind.navi);
+          _appendLine('  GLOBE_PIN    :: LAT ${loc.lat.toStringAsFixed(2)}, LON ${loc.lon.toStringAsFixed(2)}', kind: _LineKind.navi);
+          _appendLine('  Origin node location updated for the Wired Matchmaking globe.', kind: _LineKind.navi);
+          _focusNode.requestFocus();
+        });
+      } else {
+        final current = ref.read(userLocationProvider).valueOrNull;
+        if (current != null) {
+          _appendLine('  CURRENT LOCATION:', kind: _LineKind.navi);
+          _appendLine('  • Country  : ${current.countryName} (${current.countryCode})', kind: _LineKind.navi);
+          _appendLine('  • Casual IP: ${current.casualIp}', kind: _LineKind.navi);
+          _appendLine('  • Globe Pin: LAT ${current.lat.toStringAsFixed(2)}, LON ${current.lon.toStringAsFixed(2)}', kind: _LineKind.navi);
+        } else {
+          _appendLine('  NO LOCATION CONFIGURED YET.', kind: _LineKind.navi);
+        }
+        _appendLine('  Type [location <country>] to set origin location (e.g. location US, location Italy).', kind: _LineKind.navi);
+        _focusNode.requestFocus();
+      }
       return;
     }
 

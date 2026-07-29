@@ -3,7 +3,7 @@ description: >-
   Pure-Dart Go game engine shared between the Flutter app and the Dart server.
   Implements board logic, Go rules (capture, Ko, scoring), the subnet economy,
   and the attack mechanics for GoHackMe.
-version: 0.1.0
+version: 0.4.3
 publish_to: none
 license: MIT
 

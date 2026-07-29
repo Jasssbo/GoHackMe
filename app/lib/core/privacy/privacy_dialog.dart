@@ -65,7 +65,7 @@ class PrivacyNoticeDialog extends StatelessWidget {
                 '2. LOCAL STORAGE ONLY\n'
                 'All game saves and settings remain strictly on your local device.\n\n'
                 '3. MULTIPLAYER PROTOCOL (THE WIRED)\n'
-                'In online / LAN multiplayer modes, temporary session data (display name, move coordinates, and transient IP for matchmaking) is held in RAM only and automatically erased within 2 hours.\n\n'
+                'In online / LAN multiplayer modes, temporary session data (display name, move coordinates, and self-reported country node location) is held in RAM only and automatically erased within 2 hours. No third-party IP geolocation API pings are performed.\n\n'
                 '4. NO THIRD-PARTY TRACKERS\n'
                 'No third-party advertising, analytics, or behavioral tracking SDKs are bundled in this binary.\n\n'
                 '5. PUBLIC WEB PRIVACY POLICY\n'

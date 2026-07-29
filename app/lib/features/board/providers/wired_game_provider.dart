@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_engine/go_engine.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/location/user_location_service.dart';
 import '../../../services/i_game_transport.dart';
 import '../../../services/connected_player.dart';
 import '../../../services/wired_server_service.dart';
@@ -133,6 +134,8 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
 
     _subscribeToTransport();
 
+    final userLoc = ref.read(userLocationProvider).valueOrNull;
+
     try {
       await svc.connect(
         playerId: playerId,
@@ -140,6 +143,9 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
         roomCode: roomCode,
         boardSize: boardSize,
         maxPlayers: maxPlayers,
+        lat: userLoc?.lat,
+        lon: userLoc?.lon,
+        country: userLoc?.countryName,
       );
     } catch (e) {
       if (state.status == WiredStatus.waking) {
@@ -187,11 +193,16 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
 
     _subscribeToTransport();
 
+    final userLoc = ref.read(userLocationProvider).valueOrNull;
+
     try {
       await svc.connect(
         playerId: playerId,
         displayName: displayName,
         roomCode: roomCode.toUpperCase(),
+        lat: userLoc?.lat,
+        lon: userLoc?.lon,
+        country: userLoc?.countryName,
       );
     } catch (e) {
       if (state.status == WiredStatus.waking) {

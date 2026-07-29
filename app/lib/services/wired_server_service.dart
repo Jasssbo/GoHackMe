@@ -77,6 +77,9 @@ class WiredServerService implements IGameTransport {
   String? _roomCode;
   int _boardSize = 19;
   int _maxPlayers = 2;
+  double? _lat;
+  double? _lon;
+  String? _country;
 
   final _stateCtrl   = StreamController<GameState>.broadcast();
   final _logCtrl     = StreamController<String>.broadcast();
@@ -104,12 +107,18 @@ class WiredServerService implements IGameTransport {
     required String roomCode,
     int boardSize = 19,
     int maxPlayers = 2,
+    double? lat,
+    double? lon,
+    String? country,
   }) async {
     _playerId = playerId;
     _displayName = displayName;
     _roomCode = roomCode;
     _boardSize = boardSize;
     _maxPlayers = maxPlayers;
+    _lat = lat;
+    _lon = lon;
+    _country = country;
     await _openSocket();
   }
 
@@ -177,7 +186,13 @@ class WiredServerService implements IGameTransport {
       displayName: _displayName!,
       boardSize: _boardSize,
       maxPlayers: _maxPlayers,
+      lat: _lat,
+      lon: _lon,
+      country: _country,
     ).toJsonString());
+
+    _logCtrl.add('UPLINK_ESTABLISHED');
+  }
 
     _logCtrl.add('UPLINK_ESTABLISHED');
   }

@@ -1,14 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:http/http.dart' as http;
-
-/// Result of a successful IP geolocation lookup.
+/// Result of player location data.
 ///
-/// [lat] and [lon] are the **geographic centroid of the player's country**,
-/// not the player's actual location.  This ensures the globe widget can show
-/// a country-level pin without the server ever storing or forwarding
-/// precise coordinates (GDPR data-minimisation, Art. 5(1)(c)).
+/// [lat] and [lon] are the geographic coordinates of the player's self-reported
+/// country with jitter offset, ensuring no external IP pings are made.
 class GeoResult {
   final double lat;
   final double lon;
@@ -22,8 +17,6 @@ class GeoResult {
 }
 
 /// Geographic centroids for ~90 countries (ISO 3166-1 alpha-2 keys).
-/// These are fixed, publicly-known points — no individual can be identified
-/// from them regardless of how many players share the same country.
 const _countryCentroids = <String, (double, double)>{
   'AD': (42.5, 1.5),    'AE': (24.0, 54.0),   'AF': (33.0, 65.0),
   'AL': (41.0, 20.0),   'AM': (40.0, 45.0),   'AO': (-12.5, 18.5),
@@ -55,48 +48,12 @@ const _countryCentroids = <String, (double, double)>{
   'RU': (60.0, 100.0),  'SA': (24.0, 45.0),   'SE': (60.1, 18.6),
   'SG': (1.4, 103.8),   'SI': (46.1, 14.8),   'SK': (48.7, 19.7),
   'SN': (14.5, -14.5),  'SY': (35.0, 38.0),   'TH': (13.0, 101.0),
-  'TN': (34.0, 9.0),    'TR': (39.0, 35.0),   'TW': (23.7, 121.0),
-  'TZ': (-6.4, 34.9),   'UA': (49.0, 32.0),   'UG': (1.4, 32.3),
-  'US': (38.0, -97.0),  'UY': (-33.0, -56.0), 'UZ': (41.4, 64.6),
-  'VE': (8.0, -66.0),   'VN': (14.1, 108.3),  'YE': (15.6, 47.8),
-  'ZA': (-29.0, 25.0),  'ZW': (-20.0, 30.0),
+  'TR': (39.0, 35.0),   'TW': (23.7, 121.0),  'TZ': (-6.4, 34.9),
+  'UA': (49.0, 32.0),   'UG': (1.4, 32.3),    'US': (38.0, -97.0),
+  'UY': (-33.0, -56.0), 'UZ': (41.4, 64.6),   'VE': (8.0, -66.0),
+  'VN': (14.1, 108.3),  'YE': (15.6, 47.8),   'ZA': (-29.0, 25.0),
+  'ZW': (-20.0, 30.0),
 };
-
-/// Returns a country-centroid [GeoResult] for [ip].
-///
-/// Only the ISO country code is read from the API response — the precise
-/// lat/lon fields returned by ipapi.co are intentionally ignored and replaced
-/// with the fixed geographic centroid of the country.  This means:
-///   • The server never stores or processes a player's real coordinates.
-///   • Every player from the same country maps to the identical globe pin.
-///   • An Italian player from Padua, Milan, or Sicily all appear at (42.5, 12.5).
-///
-/// Returns null for private/loopback addresses, unknown countries, or on error.
-Future<GeoResult?> geolocateIp(String ip) async {
-  if (_isPrivateIp(ip)) return null;
-  if (!_isValidPublicIp(ip)) return null;
-  try {
-    // Request only the fields we need (?fields=) to minimise data received.
-    final uri = Uri.parse('https://ipapi.co/$ip/json/?fields=country_code,country_name,error');
-    final res = await http
-        .get(uri, headers: {'User-Agent': 'gohackme-server/1.0'})
-        .timeout(const Duration(seconds: 5));
-    if (res.statusCode != 200) return null;
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    if (data['error'] == true) return null;
-    final code = (data['country_code'] as String?)?.toUpperCase();
-    if (code == null || code.isEmpty) return null;
-    final centroid = _countryCentroids[code];
-    if (centroid == null) return null; // country not in our list → no pin
-    return GeoResult(
-      lat: centroid.$1,
-      lon: centroid.$2,
-      country: data['country_name'] as String? ?? code,
-    );
-  } catch (_) {
-    return null;
-  }
-}
 
 /// Returns the best-effort client IP from [headers].
 ///

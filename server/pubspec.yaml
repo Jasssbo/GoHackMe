@@ -2,7 +2,7 @@ name: gohackme_server
 description: >-
   GoHackMe WebSocket game server. Runs the authoritative go_engine
   and broadcasts state to all connected players via shelf + WebSockets.
-version: 0.1.0
+version: 0.4.3
 publish_to: none
 license: MIT
 

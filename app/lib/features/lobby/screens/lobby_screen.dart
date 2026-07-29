@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_engine/go_engine.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/location/user_location_service.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/cyberpunk_colors.dart';
 import '../../../services/audio_service.dart';
@@ -73,6 +74,15 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
 
   void _pickWired() {
     ref.read(audioServiceProvider).playMenuSelect();
+    final userLoc = ref.read(userLocationProvider).valueOrNull;
+    if (userLoc == null) {
+      _showSetupDialog(_CountrySelectionDialog(onComplete: _openWiredSetup));
+    } else {
+      _openWiredSetup();
+    }
+  }
+
+  void _openWiredSetup() {
     _showSetupDialog(_WiredSetupDialog(
       onHost: (size, players) {
         Navigator.of(context, rootNavigator: true).pop();
@@ -86,6 +96,10 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
         } else {
           context.push(Routes.wiredJoin);
         }
+      },
+      onChangeLocation: () {
+        Navigator.of(context, rootNavigator: true).pop();
+        _showSetupDialog(_CountrySelectionDialog(onComplete: _openWiredSetup));
       },
     ));
   }
@@ -699,12 +713,104 @@ class _LanSetupDialogState extends State<_LanSetupDialog> {
   }
 }
 
+// ── Country selection dialog ─────────────────────────────────────────────
+
+class _CountrySelectionDialog extends StatefulWidget {
+  final VoidCallback onComplete;
+  const _CountrySelectionDialog({required this.onComplete});
+
+  @override
+  State<_CountrySelectionDialog> createState() => _CountrySelectionDialogState();
+}
+
+class _CountrySelectionDialogState extends State<_CountrySelectionDialog> {
+  String _selectedCountry = 'United States';
+  static const _accent = Color(0xFF8B5CF6);
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer(
+      builder: (context, ref, _) {
+        return _DialogShell(
+          title: '// WIRED_SETUP :: SELECT_ORIGIN',
+          accent: _accent,
+          body: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'FIRST-TIME WIRED SETUP:\n'
+                'Select your country to generate a casual IP and distinct coordinates for the matchmaking globe.',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 10,
+                  height: 1.5,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              const SizedBox(height: 14),
+              _dialogLabel('SELECT_COUNTRY', _accent),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  border: Border.all(color: _accent.withValues(alpha: 0.4)),
+                  color: const Color(0xFF030A11),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: kCountryDatabase.any((c) => c.name == _selectedCountry)
+                        ? _selectedCountry
+                        : kCountryDatabase.first.name,
+                    dropdownColor: const Color(0xFF030A11),
+                    isExpanded: true,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                    ),
+                    items: kCountryDatabase
+                        .map((c) => DropdownMenuItem(
+                              value: c.name,
+                              child: Text('${c.code} — ${c.name}'),
+                            ))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() => _selectedCountry = val);
+                      }
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              _dialogButton('ESTABLISH_ORIGIN', _accent, () async {
+                await ref
+                    .read(userLocationProvider.notifier)
+                    .setCountry(_selectedCountry);
+                if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                  widget.onComplete();
+                }
+              }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 // ── Wired setup dialog ────────────────────────────────────────────────────
 
 class _WiredSetupDialog extends StatefulWidget {
   final void Function(int boardSize, int maxPlayers) onHost;
   final void Function(String roomCode) onJoin;
-  const _WiredSetupDialog({required this.onHost, required this.onJoin});
+  final VoidCallback? onChangeLocation;
+
+  const _WiredSetupDialog({
+    required this.onHost,
+    required this.onJoin,
+    this.onChangeLocation,
+  });
 
   @override
   State<_WiredSetupDialog> createState() => _WiredSetupDialogState();
@@ -805,6 +911,48 @@ class _WiredSetupDialogState extends State<_WiredSetupDialog> {
               ],
             ),
           ),
+
+          // ── Location Info Bar ────────────────────────────────────────
+          Consumer(builder: (ctx, ref, _) {
+            final loc = ref.watch(userLocationProvider).valueOrNull;
+            return Container(
+              margin: const EdgeInsets.symmetric(vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                border: Border.all(color: _accent.withValues(alpha: 0.3)),
+                color: _accent.withValues(alpha: 0.05),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      loc != null
+                          ? 'NODE_ORIGIN: ${loc.countryName} (${loc.casualIp})'
+                          : 'NODE_ORIGIN: UNKNOWN',
+                      style: TextStyle(
+                        color: _accent.withValues(alpha: 0.85),
+                        fontSize: 9,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                  if (widget.onChangeLocation != null)
+                    GestureDetector(
+                      onTap: widget.onChangeLocation,
+                      child: const Text(
+                        '[CHANGE]',
+                        style: TextStyle(
+                          color: CyberpunkColors.cyan,
+                          fontSize: 9,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          }),
 
           // ── Selected lobby info card ───────────────────────────────────
           if (_selected != null)

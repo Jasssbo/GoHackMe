@@ -2,7 +2,7 @@ name: gohackme
 description: >-
   GoHackMe – a cyberpunk/hacking-themed online multiplayer Go variant for
   mobile and desktop. Place stones, gain subnets, launch attacks.
-version: 1.0.0+1
+version: 0.4.3+1
 publish_to: none
 license: MIT
 

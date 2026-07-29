@@ -246,19 +246,29 @@ Handler buildWsHandler(RoomManager roomManager) {
           connectedRoomId = roomId;
           _log('ws', 'joined: player=$playerId name="$sanitisedName" room=$roomId');
 
-          // If this player is the first to join (becomes the host), kick off
-          // an async IP geolocation so the lobby browser can show a globe pin.
+          // If this player is the first to join (becomes the host), extract their
+          // client-reported location to show a globe pin (no third-party IP pings).
           if (room.playerCount == 1) {
-            geolocateIp(clientIp).then((geo) {
-              if (geo != null) {
+            final lat = (message.payload['lat'] as num?)?.toDouble();
+            final lon = (message.payload['lon'] as num?)?.toDouble();
+            final country = message.payload['country'] as String?;
+            if (lat != null && lon != null && country != null && country.isNotEmpty) {
+              // Clamp lat and lon to valid geographic boundaries to ensure stability
+              final clampedLat = lat.clamp(-90.0, 90.0);
+              final clampedLon = lon.clamp(-180.0, 180.0);
+              // Sanitise country string to prevent log injection or XSS
+              final cleanCountry = country.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), '').trim();
+              final sanitisedCountry = cleanCountry.length > 64 ? cleanCountry.substring(0, 64) : cleanCountry;
+
+              if (sanitisedCountry.isNotEmpty) {
                 roomManager.setRoomGeo(
                   roomId,
-                  lat: geo.lat,
-                  lon: geo.lon,
-                  country: geo.country,
+                  lat: clampedLat,
+                  lon: clampedLon,
+                  country: sanitisedCountry,
                 );
               }
-            });
+            }
           }
           return;
         }

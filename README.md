@@ -1,4 +1,4 @@
-# GoHackMe
+# GoHackMe `v0.4.3`
 
 A cyberpunk/hacking-themed multiplayer Go variant for mobile and desktop.
 Players conquer subnets and launch cyberattacks on opponents' territory — wrapped in a neon-noir aesthetic inspired by *Serial Experiments Lain* and BitBurner's IPvGO minigame.
@@ -10,7 +10,8 @@ app/          – Flutter app (mobile & desktop)
 packages/
   go_engine/  – Pure Dart game engine (shared by app and server)
 server/       – Dart Shelf WebSocket game server (Docker-ready)
-scripts/      – Python code-generation helpers
+scripts/      – Build and helper scripts
+docs/         – Public privacy policy and web documentation
 ```
 
 ## Game modes
@@ -47,6 +48,15 @@ The server URL is injected at build time:
 ```bash
 flutter run -d linux --dart-define=WIRED_SERVER_URL=https://your-app.onrender.com
 ```
+
+## Privacy, Security & Zero-Telemetry TOS
+
+GoHackMe strictly follows a **Zero-Data Privacy Protocol**:
+
+- **No Third-Party Services or APIs**: Zero third-party web services, analytics SDKs, advertising trackers, or external IP geolocation APIs (e.g. no ip-api.com / ipapi.co pings) are bundled or contacted.
+- **No Telemetry or Tracking**: No user telemetry, device metrics, or advertising identifiers (IDFA/GAID) are collected, stored, or sent.
+- **Local Device Storage**: All game saves, settings, and node origin locations remain strictly on your local device.
+- **Transient RAM-Only Session Data**: In Wired multiplayer mode, transient room data (display name and self-reported country node location) is held in server RAM only and automatically purged after 2 hours of inactivity.
 
 ## Quick start
 
@@ -158,17 +168,18 @@ cd server && dart test
 - **`server`** — server-authoritative Shelf/WebSocket server. Validates every move via `GameEngine`, broadcasts full `GameState` snapshots, manages rooms. Runs in Docker.
 - **`app`** — Flutter with Riverpod state management, go_router navigation, and a custom cyberpunk theme.
 
-## Security
+## Security & Privacy Highlights
 
 The internet-facing server (Wired mode) applies defence-in-depth:
 
 | Layer | Detail |
 |---|---|
 | **Transport** | TLS 1.3 + AES-256-GCM on all connections (`wss://`) |
+| **Telemetry & Trackers** | **Zero** telemetry, zero advertising SDKs, zero external third-party API pings |
 | **Connection & room limits** | Server-side caps on concurrent connections and active rooms |
 | **Message size** | Hard cap per message on both WebSocket and LAN TCP channels |
 | **Rate limiting** | Per-connection WebSocket and per-IP HTTP rate limits enforced |
-| **Input validation** | All identifiers validated by type and format before touching game logic |
+| **Input validation** | All identifiers & coordinates validated, clamped, and sanitised before touching game logic |
 | **Identity** | Server-verified player identity on all game actions — client cannot spoof |
 | **Headers** | `X-Content-Type-Options`, `Strict-Transport-Security`, `Cache-Control: no-store` |
 | **Secrets** | Server URL injected at compile time (`--dart-define`); keystore excluded via `.gitignore` |
