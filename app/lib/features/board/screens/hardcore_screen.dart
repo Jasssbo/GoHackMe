@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_engine/go_engine.dart';
 
 import '../../../core/theme/cyberpunk_colors.dart';
+import '../../../services/audio_service.dart';
 import '../providers/local_game_provider.dart';
 
 // ── HardcoreScreen ────────────────────────────────────────────────────────
@@ -47,6 +48,7 @@ class _HardcoreScreenState extends ConsumerState<HardcoreScreen> {
   final TextEditingController _inputCtrl = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   bool _inputEnabled = false;
+  String _prevInputText = '';
 
   // ── Event subscription ────────────────────────────────────────────────────
   StreamSubscription<GameEvent>? _eventSub;
@@ -56,16 +58,38 @@ class _HardcoreScreenState extends ConsumerState<HardcoreScreen> {
   @override
   void initState() {
     super.initState();
+    _inputCtrl.addListener(_onInputChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _boot());
   }
 
   @override
   void dispose() {
+    _inputCtrl.removeListener(_onInputChanged);
     _eventSub?.cancel();
     _scrollCtrl.dispose();
     _inputCtrl.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _onInputChanged() {
+    final current = _inputCtrl.text;
+    if (current == _prevInputText) return;
+    final audio = ref.read(audioServiceProvider);
+    if (current.length < _prevInputText.length) {
+      audio.playDeleteTypingSound();
+    } else if (current.length > _prevInputText.length) {
+      audio.playRandomTypingSound();
+    }
+    _prevInputText = current;
+  }
+
+  void _requestFocus() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_focusNode.hasFocus) {
+        _focusNode.requestFocus();
+      }
+    });
   }
 
   // ── Boot sequence ─────────────────────────────────────────────────────────
@@ -97,7 +121,7 @@ class _HardcoreScreenState extends ConsumerState<HardcoreScreen> {
 
     if (mounted) {
       setState(() => _inputEnabled = true);
-      _focusNode.requestFocus();
+      _requestFocus();
     }
   }
 
@@ -402,30 +426,38 @@ class _HardcoreScreenState extends ConsumerState<HardcoreScreen> {
     final isOver = gameState != null && GameEngine.isGameOver(gameState);
     final canInput = _inputEnabled && (isMyTurn || isOver);
 
+    if (canInput) {
+      _requestFocus();
+    }
+
     return Scaffold(
       backgroundColor: CyberpunkColors.background,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // ── Header ──────────────────────────────────────────────────
-            _HardcoreHeader(onClose: () => Navigator.of(context).pop()),
-            // ── Output ──────────────────────────────────────────────────
-            Expanded(
-              child: ListView.builder(
-                controller: _scrollCtrl,
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                itemCount: _lines.length,
-                itemBuilder: (_, i) => _LineWidget(line: _lines[i]),
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _requestFocus,
+        child: SafeArea(
+          child: Column(
+            children: [
+              // ── Header ──────────────────────────────────────────────────
+              _HardcoreHeader(onClose: () => Navigator.of(context).pop()),
+              // ── Output ──────────────────────────────────────────────────
+              Expanded(
+                child: ListView.builder(
+                  controller: _scrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  itemCount: _lines.length,
+                  itemBuilder: (_, i) => _LineWidget(line: _lines[i]),
+                ),
               ),
-            ),
-            // ── Input ───────────────────────────────────────────────────
-            _InputRow(
-              controller: _inputCtrl,
-              focusNode: _focusNode,
-              enabled: canInput,
-              onSubmit: _submit,
-            ),
-          ],
+              // ── Input ───────────────────────────────────────────────────
+              _InputRow(
+                controller: _inputCtrl,
+                focusNode: _focusNode,
+                enabled: canInput,
+                onSubmit: _submit,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -450,7 +482,7 @@ const _kHelpText = '''
 
 // ── Sub-widgets ───────────────────────────────────────────────────────────
 
-enum _LineKind { system, user, event }
+enum _LineKind { user, event, system, err }
 
 class _TermLine {
   final String text;
@@ -514,9 +546,10 @@ class _LineWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = switch (line.kind) {
-      _LineKind.user   => CyberpunkColors.cyan.withValues(alpha: 0.90),
-      _LineKind.event  => CyberpunkColors.green.withValues(alpha: 0.85),
-      _LineKind.system => CyberpunkColors.amber.withValues(alpha: 0.75),
+      _LineKind.user => CyberpunkColors.cyan.withValues(alpha: 0.90),
+      _LineKind.event => CyberpunkColors.green.withValues(alpha: 0.85),
+      _LineKind.system => CyberpunkColors.magenta.withValues(alpha: 0.85),
+      _LineKind.err => CyberpunkColors.error.withValues(alpha: 0.90),
     };
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 0.5),
@@ -584,7 +617,8 @@ class _InputRow extends StatelessWidget {
               child: TextField(
                 controller: controller,
                 focusNode: focusNode,
-                enabled: enabled,
+                enabled: true,
+                autofocus: true,
                 style: TextStyle(
                   color: CyberpunkColors.cyan.withValues(alpha: 0.90),
                   fontSize: 12,

@@ -48,7 +48,7 @@ class AudioService {
         await player.stop();
       }
 
-      await player.play(AssetSource('audio/$key.wav'));
+      await player.play(AssetSource('audio/$key.wav')).catchError((_) {});
     } catch (_) {
       // Audio errors must never crash the game.
     }
@@ -228,7 +228,7 @@ class AudioService {
     try {
       final player = _getPoolPlayer();
       await player.stop();
-      await player.play(AssetSource(assetPath.replaceFirst('assets/', '')));
+      await player.play(AssetSource(assetPath.replaceFirst('assets/', ''))).catchError((_) {});
     } catch (_) {}
   }
 
@@ -238,7 +238,7 @@ class AudioService {
     try {
       final player = _getPoolPlayer();
       await player.stop();
-      await player.play(AssetSource(assetPath.replaceFirst('assets/', '')));
+      await player.play(AssetSource(assetPath.replaceFirst('assets/', ''))).catchError((_) {});
       await player.onPlayerComplete.first.timeout(const Duration(seconds: 5));
     } catch (_) {}
   }
@@ -315,7 +315,7 @@ class AudioService {
       final player = _typingPool[_typingPoolIndex];
       _typingPoolIndex = (_typingPoolIndex + 1) % _typingPool.length;
       await player.stop();
-      await player.play(AssetSource(asset.replaceFirst('assets/', '')));
+      await player.play(AssetSource(asset.replaceFirst('assets/', ''))).catchError((_) {});
     } catch (_) {
       // Audio errors must never crash the game.
     }
@@ -325,7 +325,15 @@ class AudioService {
   /// backspace or the delete key in the name input.
   Future<void> playDeleteTypingSound() async {
     await _initializeBootSequenceAssets();
-    await _fireAndForget(_deleteTypingSound);
+    if (_muted || _deleteTypingSound == null) return;
+    try {
+      final player = _typingPool[_typingPoolIndex];
+      _typingPoolIndex = (_typingPoolIndex + 1) % _typingPool.length;
+      await player.stop();
+      await player.play(AssetSource(_deleteTypingSound!.replaceFirst('assets/', ''))).catchError((_) {});
+    } catch (_) {
+      // Audio errors must never crash the game.
+    }
   }
 
   void dispose() {

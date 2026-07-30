@@ -6,6 +6,7 @@ import '../../../core/localization/app_localizations.dart';
 import '../../../core/performance/performance_provider.dart';
 import '../../../core/privacy/privacy_dialog.dart';
 import '../../../core/theme/cyberpunk_colors.dart';
+import '../../../services/audio_service.dart';
 
 // ── NAVI response content ─────────────────────────────────────────────────
 
@@ -268,22 +269,45 @@ class _NaviTerminalScreenState extends ConsumerState<NaviTerminalScreen> {
 
   bool _inputEnabled = false;
   bool _isTyping = false;
+  String _prevInputText = '';
 
   @override
   void initState() {
     super.initState();
+    _inputCtrl.addListener(_onInputChanged);
     _typeLines(_naviGreeting, onDone: () {
       if (mounted) setState(() => _inputEnabled = true);
-      _focusNode.requestFocus();
+      _requestFocus();
     });
   }
 
   @override
   void dispose() {
+    _inputCtrl.removeListener(_onInputChanged);
     _scrollCtrl.dispose();
     _inputCtrl.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _onInputChanged() {
+    final current = _inputCtrl.text;
+    if (current == _prevInputText) return;
+    final audio = ref.read(audioServiceProvider);
+    if (current.length < _prevInputText.length) {
+      audio.playDeleteTypingSound();
+    } else if (current.length > _prevInputText.length) {
+      audio.playRandomTypingSound();
+    }
+    _prevInputText = current;
+  }
+
+  void _requestFocus() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_focusNode.hasFocus) {
+        _focusNode.requestFocus();
+      }
+    });
   }
 
   // ── Output helpers ────────────────────────────────────────────────────────
@@ -324,10 +348,15 @@ class _NaviTerminalScreenState extends ConsumerState<NaviTerminalScreen> {
   // ── Input handling ────────────────────────────────────────────────────────
 
   void _submit() {
+    if (!_inputEnabled || _isTyping) return;
+
     final raw = _inputCtrl.text.trim().toLowerCase();
     if (raw.isEmpty) return;
 
+    ref.read(audioServiceProvider).playMenuSelect();
+
     final display = _inputCtrl.text.trim();
+    _prevInputText = '';
     _inputCtrl.clear();
 
     _appendLine('> $display', kind: _LineKind.user);
@@ -346,7 +375,7 @@ class _NaviTerminalScreenState extends ConsumerState<NaviTerminalScreen> {
     if (raw == 'privacy') {
       PrivacyNoticeDialog.show(context);
       _appendLine('  Opening ZERO_DATA_PRIVACY_POLICY modal...', kind: _LineKind.navi);
-      _focusNode.requestFocus();
+      _requestFocus();
       return;
     }
 
@@ -360,7 +389,7 @@ class _NaviTerminalScreenState extends ConsumerState<NaviTerminalScreen> {
           _appendLine('  CASUAL_IP    :: ${loc.casualIp}', kind: _LineKind.navi);
           _appendLine('  GLOBE_PIN    :: LAT ${loc.lat.toStringAsFixed(2)}, LON ${loc.lon.toStringAsFixed(2)}', kind: _LineKind.navi);
           _appendLine('  Origin node location updated for the Wired Matchmaking globe.', kind: _LineKind.navi);
-          _focusNode.requestFocus();
+          _requestFocus();
         });
       } else {
         final current = ref.read(userLocationProvider).valueOrNull;
@@ -373,7 +402,7 @@ class _NaviTerminalScreenState extends ConsumerState<NaviTerminalScreen> {
           _appendLine('  NO LOCATION CONFIGURED YET.', kind: _LineKind.navi);
         }
         _appendLine('  Type [location <country>] to set origin location (e.g. location US, location Italy).', kind: _LineKind.navi);
-        _focusNode.requestFocus();
+        _requestFocus();
       }
       return;
     }
@@ -393,7 +422,7 @@ class _NaviTerminalScreenState extends ConsumerState<NaviTerminalScreen> {
         }
         _appendLine('  Type [lang <code>] to switch language.', kind: _LineKind.navi);
       }
-      _focusNode.requestFocus();
+      _requestFocus();
       return;
     }
 
@@ -411,7 +440,7 @@ class _NaviTerminalScreenState extends ConsumerState<NaviTerminalScreen> {
         _appendLine('  • save  — Power-save static glow mode (0 FPS GPU idle)', kind: _LineKind.navi);
         _appendLine('  Type [perf high] or [perf save] to toggle.', kind: _LineKind.navi);
       }
-      _focusNode.requestFocus();
+      _requestFocus();
       return;
     }
 
@@ -421,7 +450,7 @@ class _NaviTerminalScreenState extends ConsumerState<NaviTerminalScreen> {
       _typeLines(response, onDone: () {
         if (mounted) {
           setState(() => _inputEnabled = true);
-          _focusNode.requestFocus();
+          _requestFocus();
         }
       });
     } else {
@@ -430,7 +459,7 @@ class _NaviTerminalScreenState extends ConsumerState<NaviTerminalScreen> {
         kind: _LineKind.navi,
       );
       _appendLine('', kind: _LineKind.navi);
-      _focusNode.requestFocus();
+      _requestFocus();
     }
   }
 
@@ -442,11 +471,7 @@ class _NaviTerminalScreenState extends ConsumerState<NaviTerminalScreen> {
       backgroundColor: CyberpunkColors.background,
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          if (!_focusNode.hasFocus && _inputEnabled) {
-            _focusNode.requestFocus();
-          }
-        },
+        onTap: _requestFocus,
         child: SafeArea(
           child: Column(
             children: [
@@ -652,7 +677,7 @@ class _InputRow extends StatelessWidget {
             child: TextField(
               controller: controller,
               focusNode: focusNode,
-              enabled: enabled,
+              enabled: true,
               autofocus: true,
               style: TextStyle(
                 color: CyberpunkColors.cyan.withValues(alpha: 0.90),
@@ -697,3 +722,4 @@ class _InputRow extends StatelessWidget {
     );
   }
 }
+
