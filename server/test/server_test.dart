@@ -185,5 +185,88 @@ void main() {
         isTrue,
       );
     });
+
+    test('pre-game host disconnect closes room immediately and removes it from /rooms',
+        () async {
+      const playerId = '550e8400-e29b-41d4-a716-446655440099';
+      const roomId = 'ROOM-PRE-HOST';
+
+      final ws = WebSocketChannel.connect(Uri.parse(wsUrl));
+      await ws.ready;
+      ws.sink.add(GameMessage.joinRoom(
+        playerId: playerId,
+        roomId: roomId,
+        displayName: 'HostPlayer',
+      ).toJsonString());
+
+      await ws.stream.first.timeout(const Duration(seconds: 3));
+
+      // Host leaves before game starts.
+      await ws.sink.close();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      final response = await get(Uri.parse('$host/rooms'));
+      expect(response.statusCode, 200);
+      final rooms = jsonDecode(response.body) as List<dynamic>;
+      expect(rooms.any((r) => (r as Map)['code'] == roomId), isFalse);
+    });
+
+    test('pre-game host disconnect notifies connected guests with ROOM_CLOSED',
+        () async {
+      const hostId = '550e8400-e29b-41d4-a716-446655440088';
+      const guestId = '550e8400-e29b-41d4-a716-446655440077';
+      const roomId = 'ROOM-PRE-GUEST';
+
+      final hostWs = WebSocketChannel.connect(Uri.parse(wsUrl));
+      addTearDown(hostWs.sink.close);
+      await hostWs.ready;
+      hostWs.sink.add(GameMessage.joinRoom(
+        playerId: hostId,
+        roomId: roomId,
+        displayName: 'Host',
+        maxPlayers: 3,
+      ).toJsonString());
+      await hostWs.stream.first.timeout(const Duration(seconds: 3));
+
+      final guestWs = WebSocketChannel.connect(Uri.parse(wsUrl));
+      addTearDown(guestWs.sink.close);
+      await guestWs.ready;
+
+      final guestMsgs = <GameMessage>[];
+      final sub = guestWs.stream
+          .map((raw) => GameMessage.fromJsonString(raw as String))
+          .listen(guestMsgs.add);
+      addTearDown(sub.cancel);
+
+      guestWs.sink.add(GameMessage.joinRoom(
+        playerId: guestId,
+        roomId: roomId,
+        displayName: 'Guest',
+      ).toJsonString());
+
+      // Wait until guest receives initial message
+      final deadline = DateTime.now().add(const Duration(seconds: 3));
+      while (guestMsgs.isEmpty && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(guestMsgs.isNotEmpty, isTrue);
+      expect(
+        guestMsgs.first.type,
+        MessageType.playerJoined,
+        reason: 'Received error instead: ${guestMsgs.first.payload['reason']}',
+      );
+
+      // Host closes connection
+      await hostWs.sink.close();
+
+      // Guest should receive ROOM_CLOSED error
+      final errDeadline = DateTime.now().add(const Duration(seconds: 3));
+      while (guestMsgs.length < 2 && DateTime.now().isBefore(errDeadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(guestMsgs.length, 2);
+      expect(guestMsgs[1].type, MessageType.error);
+      expect(guestMsgs[1].payload['reason'], 'ROOM_CLOSED');
+    });
   });
 }

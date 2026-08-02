@@ -7,6 +7,7 @@ import 'package:go_engine/go_engine.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/lifecycle/app_lifecycle_provider.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/cyberpunk_colors.dart';
 import '../../../core/widgets/glitch_overlay.dart';
@@ -95,6 +96,19 @@ class _WiredGameScreenState extends ConsumerState<WiredGameScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<AppLifecycleState>(appLifecycleProvider, (previous, next) {
+      if (next == AppLifecycleState.paused ||
+          next == AppLifecycleState.inactive ||
+          next == AppLifecycleState.detached) {
+        final ws = ref.read(wiredGameProvider);
+        if (ws.role == WiredRole.host &&
+            (ws.status == WiredStatus.waiting ||
+                ws.status == WiredStatus.waking)) {
+          _notifier.leave();
+        }
+      }
+    });
+
     final ws = ref.watch(wiredGameProvider);
     return Scaffold(
       backgroundColor: _kIndigoBg,
@@ -998,6 +1012,7 @@ String _friendlyError(String? code) => switch (code) {
       'GAME_ALREADY_STARTED' => 'This game has already started',
       'ROOM_NOT_FOUND'       => 'Room code not found',
       'ALREADY_IN_ROOM'      => 'You are already in this room',
+      'ROOM_CLOSED'          => 'The host closed this room',
       _                      => code ?? 'UPLINK_FAILED',
     };
 

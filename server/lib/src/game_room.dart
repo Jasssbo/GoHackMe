@@ -204,7 +204,28 @@ class GameRoom {
       return;
     }
 
-    // Pre-game or player not found: immediate removal.
+    // Pre-game: if the room host leaves before the game starts, dissolve the room
+    // immediately to prevent hostless ghost lobbies in the Wired browser.
+    if (_state == null && playerId == _hostPlayerId) {
+      _log('room:$id', 'host left pre-game: $playerId — closing room');
+      _broadcast(GameMessage.error(reason: 'ROOM_CLOSED', roomId: id));
+      for (final ch in _connections.values) {
+        try {
+          ch.sink.close();
+        } catch (_) {}
+      }
+      _connections.clear();
+      _players.clear();
+      for (final t in _reconnectTimers.values) {
+        t.cancel();
+      }
+      _reconnectTimers.clear();
+      _disconnectedPlayerIds.clear();
+      onEmpty();
+      return;
+    }
+
+    // Pre-game guest or player not found: immediate removal.
     _log('room:$id', 'player left (pre-game): $playerId');
     _players.removeWhere((p) => p.id == playerId);
     _broadcast(GameMessage(

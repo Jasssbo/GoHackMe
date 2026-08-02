@@ -301,6 +301,7 @@ class WiredGameNotifier extends Notifier<WiredGameState> {
       'ROOM_NOT_FOUND',
       'VERSION_MISMATCH',
       'ROOM_FULL',
+      'ROOM_CLOSED',
     };
     // Ignore non-fatal server errors during gameplay.
     if (state.status == WiredStatus.playing &&
