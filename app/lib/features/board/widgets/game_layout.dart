@@ -505,7 +505,7 @@ class _GameLayoutState extends ConsumerState<GameLayout> {
         ] else ...[
           const PanelHeader('// LAYER_STATUS'),
           Padding(
-            padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
+            padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
             child: Text(
               widget.state.phase == GamePhase.attack
                   ? (widget.state.currentPlayerId == widget.localPlayerId
@@ -520,6 +520,20 @@ class _GameLayoutState extends ConsumerState<GameLayout> {
               ),
             ),
           ),
+          if (widget.state.phase == GamePhase.attack &&
+              widget.state.currentPlayerId != widget.localPlayerId)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(10, 0, 10, 6),
+              child: Text(
+                '> Tip: Access ATTACK_CODEX below to inspect payload specs while waiting.',
+                style: TextStyle(
+                  color: CyberpunkColors.textSecondary,
+                  fontSize: 9,
+                  letterSpacing: 0.5,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
           const Spacer(),
         ],
         const PanelDivider(),

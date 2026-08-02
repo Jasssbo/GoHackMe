@@ -159,32 +159,76 @@ class _AttackCodexState extends State<AttackCodex> {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () => _openFullscreen(context),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 5, 10, 5),
-        child: Row(
-          children: [
-            const Text(
-              '// ATTACK_CODEX',
-              style: TextStyle(
-                color: CyberpunkColors.cyanDim,
-                fontSize: 9,
-                letterSpacing: 2,
-                fontFamily: 'monospace',
-              ),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: CyberpunkColors.cyan.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: CyberpunkColors.cyan.withValues(alpha: 0.85),
+          width: 1.2,
+        ),
+        boxShadow: CyberpunkColors.glowFor(CyberpunkColors.cyan, intensity: 1.2),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _openFullscreen(context),
+          borderRadius: BorderRadius.circular(4),
+          splashColor: CyberpunkColors.cyan.withValues(alpha: 0.3),
+          highlightColor: CyberpunkColors.cyan.withValues(alpha: 0.2),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.menu_book_rounded,
+                  size: 14,
+                  color: CyberpunkColors.cyan,
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  '// ATTACK_CODEX',
+                  style: TextStyle(
+                    color: CyberpunkColors.cyan,
+                    fontSize: 11,
+                    letterSpacing: 2,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                    shadows: [
+                      Shadow(
+                        color: CyberpunkColors.cyan,
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: CyberpunkColors.cyan.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(2),
+                    border: Border.all(
+                      color: CyberpunkColors.cyan.withValues(alpha: 0.6),
+                      width: 1,
+                    ),
+                  ),
+                  child: const Text(
+                    '[OPEN]',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      letterSpacing: 1,
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const Spacer(),
-            const Text(
-              '[+]',
-              style: TextStyle(
-                color: CyberpunkColors.cyanDim,
-                fontSize: 9,
-                letterSpacing: 1,
-                fontFamily: 'monospace',
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
