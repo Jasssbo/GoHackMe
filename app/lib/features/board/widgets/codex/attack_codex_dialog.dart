@@ -160,7 +160,7 @@ class _AttackCodexState extends State<AttackCodex> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       decoration: BoxDecoration(
         color: CyberpunkColors.cyan.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(4),
@@ -178,22 +178,22 @@ class _AttackCodexState extends State<AttackCodex> {
           splashColor: CyberpunkColors.cyan.withValues(alpha: 0.3),
           highlightColor: CyberpunkColors.cyan.withValues(alpha: 0.2),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Icon(
                   Icons.menu_book_rounded,
-                  size: 14,
+                  size: 13,
                   color: CyberpunkColors.cyan,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 const Text(
                   '// ATTACK_CODEX',
                   style: TextStyle(
                     color: CyberpunkColors.cyan,
-                    fontSize: 11,
-                    letterSpacing: 2,
+                    fontSize: 9.5,
+                    letterSpacing: 1.5,
                     fontFamily: 'monospace',
                     fontWeight: FontWeight.bold,
                     shadows: [
@@ -202,28 +202,6 @@ class _AttackCodexState extends State<AttackCodex> {
                         blurRadius: 8,
                       ),
                     ],
-                  ),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: CyberpunkColors.cyan.withValues(alpha: 0.25),
-                    borderRadius: BorderRadius.circular(2),
-                    border: Border.all(
-                      color: CyberpunkColors.cyan.withValues(alpha: 0.6),
-                      width: 1,
-                    ),
-                  ),
-                  child: const Text(
-                    '[OPEN]',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 9,
-                      letterSpacing: 1,
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.bold,
-                    ),
                   ),
                 ),
               ],

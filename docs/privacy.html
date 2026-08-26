@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -14,7 +15,13 @@
       --text: #C8D8E8;
       --dim: #7A9AB8;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
     body {
       background: var(--bg);
       color: var(--text);
@@ -23,6 +30,7 @@
       line-height: 1.75;
       padding: 40px 20px;
     }
+
     .container {
       max-width: 720px;
       margin: 0 auto;
@@ -30,18 +38,21 @@
       background: var(--surface);
       padding: 48px 40px;
     }
+
     .header-label {
       font-size: 10px;
       letter-spacing: 3px;
       color: var(--amber);
       margin-bottom: 8px;
     }
+
     h1 {
       font-size: 22px;
       color: var(--cyan);
       letter-spacing: 2px;
       margin-bottom: 4px;
     }
+
     .subtitle {
       font-size: 11px;
       color: var(--dim);
@@ -50,40 +61,62 @@
       padding-bottom: 24px;
       border-bottom: 1px solid var(--border);
     }
+
     h2 {
       font-size: 11px;
       letter-spacing: 2.5px;
       color: var(--amber);
       margin: 32px 0 12px;
     }
-    p, li {
+
+    p,
+    li {
       color: var(--text);
       font-size: 13px;
     }
+
     ul {
       padding-left: 20px;
       margin-top: 6px;
     }
-    li { margin-bottom: 4px; }
+
+    li {
+      margin-bottom: 4px;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
       margin: 12px 0;
       font-size: 12px;
     }
-    th, td {
+
+    th,
+    td {
       text-align: left;
       padding: 8px 12px;
       border: 1px solid var(--border);
     }
+
     th {
       color: var(--amber);
       background: #0A1A2A;
       letter-spacing: 1px;
     }
-    td { color: var(--text); }
-    a { color: var(--cyan); text-decoration: none; }
-    a:hover { text-decoration: underline; }
+
+    td {
+      color: var(--text);
+    }
+
+    a {
+      color: var(--cyan);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
     .footer {
       margin-top: 40px;
       padding-top: 20px;
@@ -92,6 +125,7 @@
       color: var(--dim);
       letter-spacing: 1px;
     }
+
     .tag {
       display: inline-block;
       font-size: 9px;
@@ -103,11 +137,12 @@
     }
   </style>
 </head>
+
 <body>
   <div class="container">
     <div class="header-label">&gt; LOADING: PRIVACY_PROTOCOL_v1.0...</div>
     <h1>GoHackMe</h1>
-    <div class="subtitle">Privacy Policy &nbsp;|&nbsp; Last updated: July 2025</div>
+    <div class="subtitle">Privacy Policy &nbsp;|&nbsp; Last updated: August 2026</div>
 
     <div class="tag">GDPR COMPLIANT</div>
 
@@ -123,25 +158,48 @@
     <h2>— 2. WHAT WE COLLECT —</h2>
     <p>GoHackMe is built to collect the absolute minimum. Here is everything we process:</p>
     <table>
-      <tr><th>Data</th><th>Where stored</th><th>Retention</th><th>Third party?</th></tr>
-      <tr><td>Display name (entered by you)</td><td>Your device only (SharedPreferences)</td><td>Until you clear app data</td><td>No</td></tr>
-      <tr><td>Name history (last used names)</td><td>Your device only (SharedPreferences)</td><td>Until you clear app data</td><td>No</td></tr>
-      <tr><td>Country (derived from IP)</td><td>Server RAM, game room only</td><td>Max 2 hours</td><td>Via ipapi.co *</td></tr>
-      <tr><td>Chat messages</td><td>Server RAM, game room only</td><td>Max 2 hours</td><td>No</td></tr>
+      <tr>
+        <th>Data</th>
+        <th>Where stored</th>
+        <th>Retention</th>
+        <th>Third party?</th>
+      </tr>
+      <tr>
+        <td>Display name (entered by you)</td>
+        <td>Your device only (SharedPreferences)</td>
+        <td>Until you clear app data</td>
+        <td>No</td>
+      </tr>
+      <tr>
+        <td>Name history (last used names)</td>
+        <td>Your device only (SharedPreferences)</td>
+        <td>Until you clear app data</td>
+        <td>No</td>
+      </tr>
+      <tr>
+        <td>Country (self-reported)</td>
+        <td>Server RAM, game room only</td>
+        <td>Max 2 hours</td>
+        <td>No</td>
+      </tr>
+      <tr>
+        <td>Chat messages</td>
+        <td>Server RAM, game room only</td>
+        <td>Max 2 hours</td>
+        <td>No</td>
+      </tr>
     </table>
-    <p style="font-size:11px;color:var(--dim);margin-top:6px;">
-      * We send your IP to <a href="https://ipapi.co/privacy" target="_blank">ipapi.co</a> to determine your country code.
-      Only the country code is retained by us — your IP is never stored. The coordinate is replaced with
-      a fixed national centroid (GDPR Art. 5(1)(c) — data minimisation).
-    </p>
 
     <h2>— 3. WHY WE COLLECT IT —</h2>
     <ul>
-      <li><strong>Display name:</strong> to identify you to other players in your game room. Legal basis: contract / legitimate interest.</li>
-      <li><strong>Country:</strong> to display your country flag on the lobby globe widget. Legal basis: legitimate interest.</li>
+      <li><strong>Display name:</strong> to identify you to other players in your game room. Legal basis: contract /
+        legitimate interest.</li>
+      <li><strong>Country:</strong> to display your country flag on the lobby globe widget. Legal basis: legitimate
+        interest.</li>
       <li><strong>Chat messages:</strong> to enable real-time in-game communication. Legal basis: contract.</li>
     </ul>
-    <p style="margin-top:10px;">We do not use your data for advertising, profiling, or any purpose beyond operating the game.</p>
+    <p style="margin-top:10px;">We do not use your data for advertising, profiling, or any purpose beyond operating the
+      game.</p>
 
     <h2>— 4. WHAT WE DON'T COLLECT —</h2>
     <ul>
@@ -154,15 +212,11 @@
     </ul>
 
     <h2>— 5. DATA SHARING —</h2>
-    <p>We share data with one external service:</p>
-    <ul>
-      <li><a href="https://ipapi.co/privacy" target="_blank">ipapi.co</a> — receives your IP address to return a country code.
-        Their privacy policy is available at the link above.</li>
-    </ul>
-    <p style="margin-top:10px;">
+    <p>
       The game server runs on <a href="https://render.com/privacy" target="_blank">Render.com</a> (Oregon, USA),
       which participates in the EU–US Data Privacy Framework.
       No game data is stored to disk — Render has no access to persistent user data.
+      We do not share your data with any other external services.
     </p>
 
     <h2>— 6. YOUR RIGHTS (EU / GDPR) —</h2>
@@ -173,7 +227,8 @@
       <li><strong>Rectification</strong> — request correction of inaccurate data.</li>
       <li><strong>Object</strong> — object to processing based on legitimate interest.</li>
       <li><strong>Portability</strong> — receive your data in a machine-readable format.</li>
-      <li><strong>Lodge a complaint</strong> — with your national supervisory authority (e.g. CNIL in France, BfDI in Germany).</li>
+      <li><strong>Lodge a complaint</strong> — with your national supervisory authority (e.g. CNIL in France, BfDI in
+        Germany).</li>
     </ul>
     <p style="margin-top:10px;">
       To exercise any of these rights, open an issue at
@@ -182,8 +237,10 @@
 
     <h2>— 7. HOW TO DELETE YOUR DATA —</h2>
     <ul>
-      <li><strong>Local data</strong> (display name, name history): Settings → Clear local data in the app, or uninstall the app.</li>
-      <li><strong>Server data</strong> (country, chat): automatically deleted when the game room closes — maximum 2 hours after the last player disconnects.</li>
+      <li><strong>Local data</strong> (display name, name history): Settings → Clear local data in the app, or uninstall
+        the app.</li>
+      <li><strong>Server data</strong> (country, chat): automatically deleted when the game room closes — maximum 2
+        hours after the last player disconnects.</li>
     </ul>
 
     <h2>— 8. CHILDREN —</h2>
@@ -212,4 +269,5 @@
     </div>
   </div>
 </body>
+
 </html>

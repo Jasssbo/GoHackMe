@@ -7,7 +7,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('AttackCodex Widget', () {
-    testWidgets('renders luminous AttackCodex button with title and [OPEN] badge', (tester) async {
+    testWidgets('renders luminous AttackCodex button with icon and title', (tester) async {
       await tester.pumpWidget(
         const ProviderScope(
           child: MaterialApp(
@@ -19,7 +19,6 @@ void main() {
       );
 
       expect(find.text('// ATTACK_CODEX'), findsOneWidget);
-      expect(find.text('[OPEN]'), findsOneWidget);
       expect(find.byIcon(Icons.menu_book_rounded), findsOneWidget);
     });
 
